@@ -16,9 +16,9 @@ import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 from pointnet2_ops.pointnet2_utils import furthest_point_sample
-from models.util import group
-from models.position_embedding import PositionEmbeddingCoordsSine
-from models.helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, get_clones
+from util import group
+from position_embedding import PositionEmbeddingCoordsSine
+from helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, get_clones
 import IPython
 
 

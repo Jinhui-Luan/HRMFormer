@@ -12,7 +12,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam, AdamW
-from models.transformer import Transformer, SMPLModel_torch
+from transformer import Transformer, SMPLModel_torch
 from option import BaseOptionParser
 
 
@@ -383,8 +383,8 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', 1000)
-        dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', 5000)
+        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', 10)
+        dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', 1)
 
         # create model and optimizer
         optimizer = ScheduledOptim(AdamW(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
