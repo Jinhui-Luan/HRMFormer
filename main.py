@@ -90,7 +90,7 @@ class CosineScheduledOptim():
         self._optimizer.zero_grad()
 
     def _get_lr_scale(self):
-        if self.epoch < self.step_epoch:
+        if self.epoch <= self.step_epoch:
             lr = self.base_lr
         else:
             lr = self.clip + 0.5 * (self.base_lr - self.clip) * \
@@ -99,9 +99,8 @@ class CosineScheduledOptim():
 
     def _update_learning_rate(self):
         ''' Learning rate scheduling per step '''
-
-        self.n_steps += 1
         lr = self._get_lr_scale()
+        self.epoch += 1
 
         for param_group in self._optimizer.param_groups:
             param_group['lr'] = lr
