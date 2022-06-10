@@ -4,6 +4,7 @@ import time
 import random
 from tqdm import tqdm
 import IPython
+from math import cos, pi
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,7 +34,7 @@ class MyDataset(Dataset):
         }
 
 
-class ScheduledOptim():
+class WarmUpScheduledOptim():
     '''A simple wrapper class for learning rate scheduling'''
 
     def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps):
@@ -43,17 +44,14 @@ class ScheduledOptim():
         self.n_warmup_steps = n_warmup_steps
         self.n_steps = 0
 
-
     def step_and_update_lr(self):
         "Step with the inner optimizer"
         self._update_learning_rate()
         self._optimizer.step()
 
-
     def zero_grad(self):
         "Zero out the gradients with the inner optimizer"
         self._optimizer.zero_grad()
-
 
     def _get_lr_scale(self):
         d_model = self.d_model
@@ -61,13 +59,49 @@ class ScheduledOptim():
         return (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
         # return 0.001 * n_steps ** (-0.5)
 
-
-
     def _update_learning_rate(self):
         ''' Learning rate scheduling per step '''
 
         self.n_steps += 1
         lr = self.lr_mul * self._get_lr_scale()
+
+        for param_group in self._optimizer.param_groups:
+            param_group['lr'] = lr
+
+
+class CosineScheduledOptim():
+    '''A simple wrapper class for learning rate scheduling'''
+
+    def __init__(self, optimizer, base_lr, step_epoch, total_epoch, clip=1e-6):
+        self._optimizer = optimizer
+        self.base_lr = base_lr
+        self.step_epoch = step_epoch
+        self.total_epoch = total_epoch
+        self.clip = clip
+        self.epoch = 1
+
+    def step_and_update_lr(self):
+        "Step with the inner optimizer"
+        self._update_learning_rate()
+        self._optimizer.step()
+
+    def zero_grad(self):
+        "Zero out the gradients with the inner optimizer"
+        self._optimizer.zero_grad()
+
+    def _get_lr_scale(self):
+        if self.epoch < self.step_epoch:
+            lr = self.base_lr
+        else:
+            lr = self.clip + 0.5 * (self.base_lr - self.clip) * \
+                (1 + cos(pi * ((self.epoch - self.step_epoch) / (self.total_epoch - self.step_epoch))))
+        return lr
+
+    def _update_learning_rate(self):
+        ''' Learning rate scheduling per step '''
+
+        self.n_steps += 1
+        lr = self._get_lr_scale()
 
         for param_group in self._optimizer.param_groups:
             param_group['lr'] = lr
@@ -145,10 +179,10 @@ def train(model, dataloader_train, dataloader_val, optimizer, device, args):
 
     # train from scratch or continue
     if args.resume:
-        epoch_start = load_checkpoint(model, args, device, args.start_epoch, optimizer=optimizer)
-        print(' - [Info] Successfully load pretrained model, start epoch =', epoch_start)
+        start_epoch = load_checkpoint(model, args, device, args.start_epoch, optimizer=optimizer)
+        print(' - [Info] Successfully load pretrained model, start epoch =', start_epoch)
     else:
-        epoch_start = 1
+        start_epoch = 1
         model.apply(weight_init)  
 
     # use tensorboard to plot curves
@@ -168,7 +202,7 @@ def train(model, dataloader_train, dataloader_val, optimizer, device, args):
 
     val_metrics = []
     
-    for i in range(epoch_start, args.epoch):
+    for i in range(start_epoch, args.total_epoch):
         print('[ Epoch', i, ']')
 
         # train epoch
@@ -231,15 +265,12 @@ def train_epoch(model, smpl_model, dataloader_train, optimizer, criterion, devic
         smpl_model(beta, theta)
         joint = smpl_model.joints
         vertex = smpl_model.verts
-        
 
         l_data = criterion(theta_pred, theta)
         l_joint = criterion(joint_pred, joint)
         l_vertex = criterion(vertex_pred, vertex)
         l = l_data + l_joint + l_vertex
         l.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-        optimizer.step_and_update_lr()
 
         mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
         mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
@@ -247,8 +278,10 @@ def train_epoch(model, smpl_model, dataloader_train, optimizer, criterion, devic
         loss.append(l)
         MPJPE.append(mpjpe.clone().detach())
         MPVPE.append(mpvpe.clone().detach())
+    
+    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+    optimizer.step_and_update_lr()
         
-
     return torch.Tensor(loss).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
 
@@ -370,12 +403,6 @@ def main():
             print('No experiment result will be saved.')
             raise
 
-        if args.batch_size < 2048 and args.n_warmup_steps <= 4000:
-            print('[Warning] The warmup steps may be not enough.(bs, warmup) = (2048, 4000) is the official setting.\n'\
-                'Using smaller batch w/o longer warmup may cause the warmup stage ends with only little data trained.')
-
-
-
         print(args)
         parser.save(os.path.join(args.exp_path, 'parameters.txt'))
         with open(os.path.join(args.exp_path, 'parameters.txt'), 'a') as f:
@@ -383,12 +410,12 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', 10)
+        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', 20)
         dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', 1)
 
         # create model and optimizer
-        optimizer = ScheduledOptim(AdamW(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
-                                args.lr_mul, args.d_model, args.n_warmup_steps)
+        optimizer = CosineScheduledOptim(AdamW(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+                                args.base_lr, args.step_epoch, args.total_epoch)
         
         # training
         train(model, dl_train, dl_val, optimizer, device, args)
@@ -396,7 +423,7 @@ def main():
         model_path = os.path.join(args.model_save_path, 'model_best.chkpt')
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', 10)
+        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', 20)
         loss, mpjpe, mpvpe = test(model, dl_test, device, args)
 
 

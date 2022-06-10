@@ -7,9 +7,6 @@ class BaseOptionParser():
         # data
         self.parser.add_argument('--basic_path', type=str, default='/home/ljh20/file/data/surreal/',
                                  help='the path of surreal dataset')
-        self.parser.add_argument('-index', type=int, default=0, help='the index of path list to generate data')
-        self.parser.add_argument('-size', type=int, default=30000, help='the size of data to generate')
-
 
         # network
         self.parser.add_argument('-d_i', type=int, default=3, help='the dimision of input')
@@ -27,18 +24,18 @@ class BaseOptionParser():
         self.parser.add_argument('-mode', type=str, choices=['train', 'test'], default='train')
 
         # train and val
-        self.parser.add_argument('-epoch', type=int, default=200)
         self.parser.add_argument('-seed', type=int, default=100, help='the seed for random')
         self.parser.add_argument('-bs', '--batch_size', type=int, default=64, help='batch size of training')
-        self.parser.add_argument('-warmup','--n_warmup_steps', type=int, default=24000)
-        self.parser.add_argument('-lr_mul', type=float, default=0.5)
+        self.parser.add_argument('-base_lr', type=float, default=5e-5)
+        self.parser.add_argument('-step_epoch', type=int, default=20)
+        self.parser.add_argument('-total_epoch', type=int, default=200)
         self.parser.add_argument('-use_tb', type=bool, default=True, help='use tensorboard')
         self.parser.add_argument('-output_path', type=str, default='./experiments/', help='path to save model and log')
         self.parser.add_argument('-exp_name', type=str, default='1_d1024', help='the experiment name to create path')
         self.parser.add_argument('-interval', type=int, default=5, help='epoch interval to save and validation')
         self.parser.add_argument('-resume', action='store_true', help='train from a speicfic epoch')
         self.parser.add_argument('-start_epoch', type=int, default=10, help='start epoch of resume training')
-        self.parser.add_argument('-clip', type=float, default=1.0, help='gradient clip')
+        self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
         
         # test
         self.parser.add_argument('-n_steps', type=int, default=24, help='number of inference steps')
