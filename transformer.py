@@ -49,30 +49,26 @@ class Local_op(nn.Module):
 
 
 class EncoderEmbedding(nn.Module):
-    def __init__(self, d_i=3, d_h1=64, d_h2=128, d_h3=256, d_h4=512, d_model=1024, nsample=8):
+    def __init__(self, d_i=3, d_h1=128, d_h2=256, d_h3=512, d_model=1024, nsample=8):
         super().__init__()
         self.conv1 = nn.Conv1d(d_i, d_h1, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm1d(d_h1)
         self.conv2 = nn.Conv1d(d_h1, d_h2, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm1d(d_h2)
         self.gather_local_0 = Local_op(in_channels=d_h3, out_channels=d_h3)
-        self.conv3 = nn.Conv1d(d_h3, d_h4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm1d(d_h4)
         self.gather_local_1 = Local_op(in_channels=d_model, out_channels=d_model)
         self.nsample = nsample
 
     def forward(self, x):
         xyz = x                                                             # xyz: (bs, 87, 3)    
         x = x.permute(0, 2, 1)                                              # (bs, 3, 87)
-        x = F.relu(self.bn1(self.conv1(x)))                                 # (bs, 64, 87)
-        x = F.relu(self.bn2(self.conv2(x)))                                 # (bs, 128, 87)
-        x = x.permute(0, 2, 1)                                              # (bs, 87, 128)
+        x = F.relu(self.bn1(self.conv1(x)))                                 # (bs, 128, 87)
+        x = F.relu(self.bn2(self.conv2(x)))                                 # (bs, 256, 87)
+        x = x.permute(0, 2, 1)                                              # (bs, 87, 256)
 
-        output = group(nsample=self.nsample, xyz=xyz, points=x)             # (bs, 87, 8, 2*128)
-        output = self.gather_local_0(output)                                # (bs, 256, 87)
-
-        output = F.relu(self.bn3(self.conv3(output)))                       # (bs, 512, 87)
-        output = output.permute(0, 2, 1)                                    # (bs, 87, 512)  
+        output = group(nsample=self.nsample, xyz=xyz, points=x)             # (bs, 87, 8, 2*256)
+        output = self.gather_local_0(output)                                # (bs, 512, 87)
+        output = output.permute(0, 2, 1)                                    # (bs, 87, 512)
 
         output = group(nsample=self.nsample, xyz=xyz, points=output)        # (bs, 87, 8, 2*512)
         output = self.gather_local_1(output)                                # (bs, 1024, 87)
@@ -84,13 +80,13 @@ class TransformerEncoderLayer(nn.Module):
 
     def __init__(self, d_model, n_heads=4, d_ffn=128,
                  dropout=0.1, dropout_attn=None,
-                 activation="relu", normalize_before=True, norm_name="ln",
+                 activation="gelu", normalize_before=True, norm_name="ln",
                  use_ffn=True,
                  ffn_use_bias=True):
         super().__init__()
         if dropout_attn is None:
             dropout_attn = dropout
-        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout_attn)
+        self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout_attn)
         self.use_ffn = use_ffn
         if self.use_ffn:
             # Implementation of Feedforward model
@@ -117,15 +113,16 @@ class TransformerEncoderLayer(nn.Module):
                      pos: Optional[Tensor] = None):
         q = k = self.with_pos_embed(src, pos)
         value = src
-        src2 = self.self_attn(q, k, value=value, attn_mask=src_mask,
+        src2 = self.slf_attn(q, k, value=value, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         src = src + self.dropout1(src2)
-        if self.use_norm_fn_on_input:
-            src = self.norm1(src)
+        src = self.norm1(src)
+
         if self.use_ffn:
             src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
             src = src + self.dropout2(src2)
             src = self.norm2(src)
+
         return src
 
     def forward_pre(self, src,
@@ -137,15 +134,18 @@ class TransformerEncoderLayer(nn.Module):
         src2 = self.norm1(src)
         value = src2
         q = k = self.with_pos_embed(src2, pos)
-        src2, attn_weights = self.self_attn(q, k, value=value, attn_mask=src_mask,
+        src2, attn_weights = self.slf_attn(q, k, value=value, attn_mask=src_mask,
                             key_padding_mask=src_key_padding_mask)
         src = src + self.dropout1(src2)
+
         if self.use_ffn:
             src2 = self.norm2(src)
             src2 = self.linear2(self.dropout(self.activation(self.linear1(src2))))
             src = src + self.dropout2(src2)
+
         if return_attn_weights:
             return src, attn_weights
+
         return src
 
     def forward(self, src,
@@ -159,8 +159,8 @@ class TransformerEncoderLayer(nn.Module):
 
     def extra_repr(self):
         st = ""
-        if hasattr(self.self_attn, "dropout"):
-            st += f"attn_dr={self.self_attn.dropout}"
+        if hasattr(self.slf_attn, "dropout"):
+            st += f"attn_dr={self.slf_attn.dropout}"
         return st
 
 
@@ -217,9 +217,7 @@ class TransformerEncoder(nn.Module):
         if transpose_swap:
             output = output.permute(1, 2, 0).view(bs, c, h, w).contiguous()
 
-        xyz_inds = None
-
-        return xyz, output, xyz_inds
+        return xyz, output
 
 
 class MaskedTransformerEncoder(TransformerEncoder):
@@ -299,8 +297,8 @@ class TransformerDecoderLayer(nn.Module):
         super().__init__()
         if dropout_attn is None:
             dropout_attn = dropout
-        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
-        self.multihead_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.crs_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
 
         self.norm1 = NORM_DICT[norm_fn_name](d_model)
         self.norm2 = NORM_DICT[norm_fn_name](d_model)
@@ -330,21 +328,25 @@ class TransformerDecoderLayer(nn.Module):
                      query_pos: Optional[Tensor] = None,
                      return_attn_weights: Optional [bool] = False):
         q = k = self.with_pos_embed(tgt, query_pos)
-        tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
+        tgt2 = self.slf_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
-        tgt2, attn = self.multihead_attn(query=self.with_pos_embed(tgt, query_pos),
+
+        tgt2, attn = self.crs_attn(query=self.with_pos_embed(tgt, query_pos),
                                    key=self.with_pos_embed(memory, pos),
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
+
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
+
         if return_attn_weights:
             return tgt, attn
+
         return tgt, None
 
     def forward_pre(self, tgt, memory,
@@ -357,20 +359,24 @@ class TransformerDecoderLayer(nn.Module):
                     return_attn_weights: Optional [bool] = False):
         tgt2 = self.norm1(tgt)
         q = k = self.with_pos_embed(tgt2, query_pos)
-        tgt2 = self.self_attn(q, k, value=tgt2, attn_mask=tgt_mask,
+        tgt2 = self.slf_attn(q, k, value=tgt2, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt2 = self.norm2(tgt)
-        tgt2, attn = self.multihead_attn(query=self.with_pos_embed(tgt2, query_pos),
+
+        tgt2, attn = self.crs_attn(query=self.with_pos_embed(tgt2, query_pos),
                                    key=self.with_pos_embed(memory, pos),
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)
         tgt = tgt + self.dropout2(tgt2)
         tgt2 = self.norm3(tgt)
+
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
         tgt = tgt + self.dropout3(tgt2)
+
         if return_attn_weights:
             return tgt, attn
+
         return tgt, None
 
     def forward(self, tgt, memory,
@@ -466,7 +472,6 @@ class Transformer(nn.Module):
             d_h1=args.enc_emb_d_h1,
             d_h2=args.enc_emb_d_h2,
             d_h3=args.enc_emb_d_h3,
-            d_h4=args.enc_emb_d_h4,
             d_model=args.d_model,
             nsample=args.nsample
         )
@@ -561,7 +566,7 @@ class Transformer(nn.Module):
         # nn.MultiHeadAttention in encoder expects features of size (npoints, bs, channel)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
-        enc_xyz, enc_features, enc_inds = self.encoder(pre_enc_features, xyz=x)             # (npoints, bs, channel)
+        enc_xyz, enc_features = self.encoder(pre_enc_features, xyz=x)                       # (npoints, bs, channel)
 
         enc_features = enc_features.permute(1, 2, 0)                                        # (bs, channel, npoint)     
         enc_features = self.enc2dec_prj(enc_features)                                       # (bs, channel, npoint)

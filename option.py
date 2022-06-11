@@ -26,7 +26,7 @@ class BaseOptionParser():
         # train and val
         self.parser.add_argument('-seed', type=int, default=100, help='the seed for random')
         self.parser.add_argument('-bs', '--batch_size', type=int, default=64, help='batch size of training')
-        self.parser.add_argument('-base_lr', type=float, default=2e-5)
+        self.parser.add_argument('-base_lr', type=float, default=1e-5)
         self.parser.add_argument('-step_epoch', type=int, default=20)
         self.parser.add_argument('-total_epoch', type=int, default=200)
         self.parser.add_argument('-use_tb', type=bool, default=True, help='use tensorboard')
