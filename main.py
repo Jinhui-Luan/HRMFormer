@@ -250,8 +250,8 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
             print(' - [Info] The model file has been saved for every {} epochs.'.format(args.interval))
 
         with open(log_train_file, 'a') as log_tf, open(log_valid_file, 'a') as log_vf:
-            log_tf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}\n'.format(i, train_loss, train_mpjpe, train_mpvpe))
-            log_vf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}\n'.format(i, val_loss, val_mpjpe, val_mpvpe))
+            log_tf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}, {:10.8f}\n'.format(i, train_loss, train_mpjpe, train_mpvpe, lr))
+            log_vf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}, {:10.8f}\n'.format(i, val_loss, val_mpjpe, val_mpvpe, lr))
 
         if not args.no_tb:
             writer.add_scalars('Loss',{'Train': train_loss, 'Val': val_loss}, i)

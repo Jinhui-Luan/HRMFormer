@@ -179,7 +179,7 @@ def group(n_sample, xyz, feature):
         nsample: the number of neighbors in knn
         feature: input feature with size of (B, N, C)
     Return:
-        new_feature: (B, N, nsample, 2C)
+        new_feature: (B, N, n_sample, 2C)
     """
     idx = knn_point(n_sample, xyz, xyz)                                          # idx: (B, N, n_sample)
     grouped_feature = index_points(feature, idx)                                # grouped_feature: (B, N, n_sample, C)

@@ -11,8 +11,8 @@ class BaseOptionParser():
         # network
         self.parser.add_argument('-d_i', type=int, default=3, help='the dimision of input')
         self.parser.add_argument('-d_o', type=int, default=3, help='the dimision of output')
-        self.parser.add_argument('-n_sample', type=int, default=8, help='the number of sampling point')
         self.parser.add_argument('-d_model', type=int, default=1024)
+        self.parser.add_argument('-n_sample', type=int, default=8, help='the number of sampling point')
         self.parser.add_argument('-n_heads', type=int, default=8)
         self.parser.add_argument('-enc_n_layers', type=int, default=3)
         self.parser.add_argument('-dec_n_layers', type=int, default=8)
@@ -32,12 +32,12 @@ class BaseOptionParser():
         self.parser.add_argument('-interval', type=int, default=5, help='epoch interval to save and validation')
         self.parser.add_argument('-resume', action='store_true', help='train from a speicfic epoch')
         self.parser.add_argument('-start_epoch', type=int, default=-1, help='start epoch of resume training')
+        self.parser.add_argument('-total_epoch', type=int, default=200)
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
 
         # optimizer
         self.parser.add_argument('-base_lr', type=float, default=1e-5)
         self.parser.add_argument('-step_epoch', type=int, default=10)
-        self.parser.add_argument('-total_epoch', type=int, default=200)
         self.parser.add_argument('-warmup','--n_warmup_steps', type=int, default=24000)
         self.parser.add_argument('-lr_mul', type=float, default=0.1)
         
