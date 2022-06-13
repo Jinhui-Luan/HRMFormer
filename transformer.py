@@ -59,15 +59,15 @@ class Local_op(nn.Module):
 
     def forward(self, x):
         '''
-        x: (B, N, nsample, d_i)
+        x: (B, N, n_sample, d_i)
         return: (B, d_o, N)
         '''
         b, n, s, d = x.size()                                           
-        x1 = x.permute(0, 1, 3, 2)                                          # x1: (B, N, d_i, nsample)
-        x2 = x1.reshape(-1, d, s)                                           # x2: (B*N, d_i, sample)
+        x1 = x.permute(0, 1, 3, 2)                                          # x1: (B, N, d_i, n_sample)
+        x2 = x1.reshape(-1, d, s)                                           # x2: (B*N, d_i, n_sample)
         BN, _, N = x2.size()
-        x3 = F.relu(self.bn1(self.conv1(x2)))                               # x3: (B*N, d_o, sample)
-        x4 = F.relu(self.bn2(self.conv2(x3)))                               # x4: (B*N, d_o, sample)
+        x3 = F.relu(self.bn1(self.conv1(x2)))                               # x3: (B*N, d_o, n_sample)
+        x4 = F.relu(self.bn2(self.conv2(x3)))                               # x4: (B*N, d_o, n_sample)
         
         x5 = F.adaptive_max_pool1d(x4, 1).view(BN, -1)                      # x5: (B*N, d_o)
         x6 = x5.reshape(b, n, -1).permute(0, 2, 1)                          # x6: (B, d_o, N)
@@ -76,7 +76,7 @@ class Local_op(nn.Module):
 
 
 class InputEmbedding(nn.Module):
-    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_h3=512, d_o=1024, nsample=8):
+    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_h3=512, d_o=1024, n_sample=8):
         super().__init__()
         self.conv1 = nn.Conv1d(d_i, d_h1, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm1d(d_h1)
@@ -84,7 +84,7 @@ class InputEmbedding(nn.Module):
         self.bn2 = nn.BatchNorm1d(d_h2)
         self.gather_local_0 = Local_op(d_h3, d_h3)
         self.gather_local_1 = Local_op(d_o, d_o)
-        self.nsample = nsample
+        self.n_sample = n_sample
 
     def forward(self, xyz):
         output = xyz                                                        # (B, N, d_i)    
@@ -93,11 +93,11 @@ class InputEmbedding(nn.Module):
         output = F.relu(self.bn2(self.conv2(output)))                       # (B, d_h2, N)
         output = output.permute(0, 2, 1)                                    # (B, N, d_h2)
 
-        output = group(nsample=self.nsample, xyz=xyz, feature=output)       # (B, N, nsample, 2*d_h2)
+        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)       # (B, N, n_sample, 2*d_h2)
         output = self.gather_local_0(output)                                # (B, d_h3, N)
         output = output.permute(0, 2, 1)                                    # (B, N, d_h3)
 
-        output = group(nsample=self.nsample, xyz=xyz, feature=output)       # (B, N, nsample, 2*d_h3)
+        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)       # (B, N, n_sample, 2*d_h3)
         output = self.gather_local_1(output)                                # (B, d_o, N)
 
         return output
@@ -460,7 +460,7 @@ class Transformer(nn.Module):
             d_h2=args.d_h2,
             d_h3=args.d_h3,
             d_o=args.d_model,
-            nsample=args.nsample
+            n_sample=args.n_sample
         )
 
         self.enc_pos_embedding = PositionEmbeddingLearned(
@@ -521,7 +521,7 @@ class Transformer(nn.Module):
             d_o=args.d_model
         )
 
-        self.num_queries = args.num_queries
+        self.n_q = args.n_q
 
         self.dec_layer = TransformerDecoderLayer(
             d_model=args.d_model,
@@ -547,7 +547,7 @@ class Transformer(nn.Module):
         'To facilitate the residual connections, the dimensions of all module outputs shall be the same.'
 
     def get_query_embeddings(self, xyz):
-        query_inds = furthest_point_sample(xyz, self.num_queries)
+        query_inds = furthest_point_sample(xyz, self.n_q)
         query_inds = query_inds.long()
         query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
         query_xyz = torch.stack(query_xyz)
