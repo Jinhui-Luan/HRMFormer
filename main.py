@@ -57,7 +57,6 @@ class WarmUpScheduledOptim():
         d_model = self.d_model
         n_steps, n_warmup_steps = self.n_steps, self.n_warmup_steps
         return (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
-        # return 0.001 * n_steps ** (-0.5)
 
     def _update_learning_rate(self):
         ''' Learning rate scheduling per step '''
@@ -65,6 +64,35 @@ class WarmUpScheduledOptim():
         self.n_steps += 1
         lr = self.lr_mul * self._get_lr_scale()
 
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+
+
+class StepScheduledOptim():
+    ''' A simple wrapper class for learning rate scheduling '''
+
+    def __init__(self, optimizer, base_lr, step_epoch, total_epoch, clip=1e-6):
+        self.optimizer = optimizer
+        self.base_lr = base_lr
+        self.step_epoch = step_epoch
+        self.total_epoch = total_epoch
+        self.clip = clip
+        self.epoch = 1
+
+    def get_lr(self):
+        if self.epoch < self.step_epoch:
+            lr = self.base_lr
+        elif self.epoch < self.step_epoch * 2:
+            lr = self.base_lr / 10
+        else:
+            lr = self.base_lr / 100
+
+        return lr
+
+    def update_lr(self):
+        ''' Learning rate scheduling per step '''
+        self.epoch += 1
+        lr = self.get_lr()
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
 
@@ -81,22 +109,20 @@ class CosineScheduledOptim():
         self.epoch = 1
 
     def get_lr(self):
-        if self.epoch <= self.step_epoch:
+        if self.epoch < self.step_epoch:
             lr = self.base_lr
         else:
             lr = self.clip + 0.5 * (self.base_lr - self.clip) * \
                 (1 + cos(pi * ((self.epoch - self.step_epoch) / (self.total_epoch - self.step_epoch))))
-            # lr = self.base_lr / 10
         return lr
 
     def update_lr(self):
         ''' Learning rate scheduling per step '''
-        lr = self.get_lr()
         self.epoch += 1
-
+        lr = self.get_lr()
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
-
+        
 
 def init_random_seed(seed):
     torch.manual_seed(seed)
@@ -177,7 +203,7 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
         model.apply(weight_init)  
 
     # use tensorboard to plot curves
-    if args.use_tb:
+    if not args.no_tb:
         writer = SummaryWriter(os.path.join(args.log_save_path, 'tensorboard'))
 
     log_train_file = os.path.join(args.log_save_path, 'train.log')
@@ -227,7 +253,7 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
             log_tf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}\n'.format(i, train_loss, train_mpjpe, train_mpvpe))
             log_vf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}\n'.format(i, val_loss, val_mpjpe, val_mpvpe))
 
-        if args.use_tb:
+        if not args.no_tb:
             writer.add_scalars('Loss',{'Train': train_loss, 'Val': val_loss}, i)
             writer.add_scalars('MPJPE',{'Train': train_mpjpe, 'Val': val_mpjpe}, i)
             writer.add_scalars('MPVPE',{'Train': train_mpvpe, 'Val': val_mpvpe}, i)
@@ -364,14 +390,10 @@ def main():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    args.enc_emb_d_h3 = args.d_model // 2
-    args.enc_emb_d_h2 = args.enc_emb_d_h3 // 2
-    args.enc_emb_d_h1 = args.enc_emb_d_h2 // 2
-    args.enc_d_model = args.dec_d_model = args.d_model
-    args.enc_n_heads = args.dec_n_heads = args.n_heads
-    args.enc_d_ffn = args.dec_d_ffn = args.d_model * 2
-    args.enc_dropout = args.dec_dropout = args.dropout
-    args.enc_activation = args.dec_activation = args.activation
+    args.d_h3 = args.d_model // 2
+    args.d_h2 = args.d_h3 // 2
+    args.d_h1 = args.d_h2 // 4
+    args.d_ffn = args.d_model * 2
 
     model = Transformer(args).to(device)
 
@@ -402,8 +424,8 @@ def main():
         dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', 1)
 
         # create optimizer and scheduler
-        optimizer = AdamW(model.parameters(), betas=(0.9, 0.98), eps=1e-09)
-        scheduler = CosineScheduledOptim(optimizer, args.base_lr, args.step_epoch, args.total_epoch)
+        optimizer = AdamW(model.parameters(), lr=args.base_lr, betas=(0.9, 0.98), eps=1e-9)
+        scheduler = StepScheduledOptim(optimizer, args.base_lr, args.step_epoch, args.total_epoch)
         
         # training
         train(model, dl_train, dl_val, scheduler, device, args)

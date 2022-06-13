@@ -11,6 +11,7 @@ from re import X
 from turtle import forward
 from typing import Optional
 import pickle
+from matplotlib.pyplot import xlabel
 import numpy as np
 import torch
 from torch import Tensor, nn
@@ -22,141 +23,167 @@ from helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, ge
 import IPython
 
 
+class PositionEmbeddingLearned(nn.Module):
+    """
+    Absolute pos embedding, learned.
+    """
+
+    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_o=1024):
+        super().__init__()
+        self.position_embedding_head = nn.Sequential(
+            nn.Conv1d(d_i, d_h1, kernel_size=1),
+            nn.BatchNorm1d(d_h1),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(d_h1, d_h2, kernel_size=1),
+            nn.BatchNorm1d(d_h2),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(d_h2, d_o, kernel_size=1)
+            )
+
+    def forward(self, xyz):
+        if xyz is None:
+            position_embedding = None
+        else:
+            xyz = xyz.transpose(1, 2).contiguous()
+            position_embedding = self.position_embedding_head(xyz)
+        return position_embedding
+
+
 class Local_op(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, d_i, d_o):
         super(Local_op, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.bn2 = nn.BatchNorm1d(out_channels)
+        self.conv1 = nn.Conv1d(d_i, d_o, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm1d(d_o)
+        self.conv2 = nn.Conv1d(d_o, d_o, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm1d(d_o)
 
     def forward(self, x):
         '''
-        x: (bs, npoint, nsample, d)
-        return: (bs, d, npoint)
+        x: (B, N, nsample, d_i)
+        return: (B, d_o, N)
         '''
         b, n, s, d = x.size()                                           
-        x1 = x.permute(0, 1, 3, 2)                                          # x1: (bs, npoint, in_channels, nsample)
-        x2 = x1.reshape(-1, d, s)                                           # x2: (bs*npint, in_channels, sample)
-        batch_size, _, N = x2.size()
-        x3 = F.relu(self.bn1(self.conv1(x2)))                               # x3: (bs*npoint, out_channels, sample)
-        x4 = F.relu(self.bn2(self.conv2(x3)))                               # x4: (bs*npoint, out_channels, sample)
+        x1 = x.permute(0, 1, 3, 2)                                          # x1: (B, N, d_i, nsample)
+        x2 = x1.reshape(-1, d, s)                                           # x2: (B*N, d_i, sample)
+        BN, _, N = x2.size()
+        x3 = F.relu(self.bn1(self.conv1(x2)))                               # x3: (B*N, d_o, sample)
+        x4 = F.relu(self.bn2(self.conv2(x3)))                               # x4: (B*N, d_o, sample)
         
-        x5 = F.adaptive_max_pool1d(x4, 1).view(batch_size, -1)              # x5: (bs*npoint, out_channels)
-        x6 = x5.reshape(b, n, -1).permute(0, 2, 1)                          # x6: (bs, out_channels, npoint)
+        x5 = F.adaptive_max_pool1d(x4, 1).view(BN, -1)                      # x5: (B*N, d_o)
+        x6 = x5.reshape(b, n, -1).permute(0, 2, 1)                          # x6: (B, d_o, N)
 
         return x6
 
 
-class EncoderEmbedding(nn.Module):
-    def __init__(self, d_i=3, d_h1=128, d_h2=256, d_h3=512, d_model=1024, nsample=8):
+class InputEmbedding(nn.Module):
+    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_h3=512, d_o=1024, nsample=8):
         super().__init__()
         self.conv1 = nn.Conv1d(d_i, d_h1, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm1d(d_h1)
         self.conv2 = nn.Conv1d(d_h1, d_h2, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm1d(d_h2)
-        self.gather_local_0 = Local_op(in_channels=d_h3, out_channels=d_h3)
-        self.gather_local_1 = Local_op(in_channels=d_model, out_channels=d_model)
+        self.gather_local_0 = Local_op(d_h3, d_h3)
+        self.gather_local_1 = Local_op(d_o, d_o)
         self.nsample = nsample
 
-    def forward(self, x):
-        xyz = x                                                             # xyz: (bs, 87, 3)    
-        x = x.permute(0, 2, 1)                                              # (bs, 3, 87)
-        x = F.relu(self.bn1(self.conv1(x)))                                 # (bs, 128, 87)
-        x = F.relu(self.bn2(self.conv2(x)))                                 # (bs, 256, 87)
-        x = x.permute(0, 2, 1)                                              # (bs, 87, 256)
+    def forward(self, xyz):
+        output = xyz                                                        # (B, N, d_i)    
+        output = output.permute(0, 2, 1)                                    # (B, d_i, N)
+        output = F.relu(self.bn1(self.conv1(output)))                       # (B, d_h1, N)
+        output = F.relu(self.bn2(self.conv2(output)))                       # (B, d_h2, N)
+        output = output.permute(0, 2, 1)                                    # (B, N, d_h2)
 
-        output = group(nsample=self.nsample, xyz=xyz, points=x)             # (bs, 87, 8, 2*256)
-        output = self.gather_local_0(output)                                # (bs, 512, 87)
-        output = output.permute(0, 2, 1)                                    # (bs, 87, 512)
+        output = group(nsample=self.nsample, xyz=xyz, feature=output)       # (B, N, nsample, 2*d_h2)
+        output = self.gather_local_0(output)                                # (B, d_h3, N)
+        output = output.permute(0, 2, 1)                                    # (B, N, d_h3)
 
-        output = group(nsample=self.nsample, xyz=xyz, points=output)        # (bs, 87, 8, 2*512)
-        output = self.gather_local_1(output)                                # (bs, 1024, 87)
+        output = group(nsample=self.nsample, xyz=xyz, feature=output)       # (B, N, nsample, 2*d_h3)
+        output = self.gather_local_1(output)                                # (B, d_o, N)
+
+        return output
+
+
+class PositionwiseFeedForward(nn.Module):
+    ''' A two-feed-forward-layer module '''
+
+    def __init__(self, d_in, d_hid, activation='gelu', pre_norm=True, norm_name='ln', dropout=0.1):
+        super().__init__()
+        self.linear1 = nn.Linear(d_in, d_hid) 
+        self.linear2 = nn.Linear(d_hid, d_in) 
+        self.norm = NORM_DICT[norm_name](d_in)
+        self.dropout = nn.Dropout(dropout)
+        self.pre_norm = pre_norm
+        self.activation = ACTIVATION_DICT[activation]()
+
+    def forward(self, x):   # (B, N, C)
+        residual = x
+
+        if self.pre_norm:
+            x = self.norm(x)
+
+        output = self.dropout(self.activation(self.linear1(x)))
+        output = self.dropout(self.linear2(output))
+        output += residual
+
+        if not self.pre_norm:
+            output = self.norm(output)
 
         return output
 
 
 class TransformerEncoderLayer(nn.Module):
 
-    def __init__(self, d_model, n_heads=4, d_ffn=128,
-                 dropout=0.1, dropout_attn=None,
-                 activation="gelu", normalize_before=True, norm_name="ln",
-                 use_ffn=True,
-                 ffn_use_bias=True):
+    def __init__(self, d_model=1024, d_ffn=2048, n_heads=8, dropout=0.1, dropout_attn=None, 
+        activation="gelu", pre_norm=True, norm_name="ln"):
         super().__init__()
+
         if dropout_attn is None:
             dropout_attn = dropout
+
         self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout_attn)
-        self.use_ffn = use_ffn
-        if self.use_ffn:
-            # Implementation of Feedforward model
-            self.linear1 = nn.Linear(d_model, d_ffn, bias=ffn_use_bias)
-            self.dropout = nn.Dropout(dropout, inplace=True)
-            self.linear2 = nn.Linear(d_ffn, d_model, bias=ffn_use_bias)
-            self.norm2 = NORM_DICT[norm_name](d_model)
-            self.norm2 = NORM_DICT[norm_name](d_model)
-            self.dropout2 = nn.Dropout(dropout, inplace=True)
 
-        self.norm1 = NORM_DICT[norm_name](d_model)
-        self.dropout1 = nn.Dropout(dropout, inplace=True)
+        self.ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
+            pre_norm=pre_norm, norm_name=norm_name, dropout=dropout)
 
+        self.norm = NORM_DICT[norm_name](d_model)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.activation = ACTIVATION_DICT[activation]()
-        self.normalize_before = normalize_before
 
-    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
-        return tensor if pos is None else tensor + pos
+        self.pre_norm = pre_norm
+        self.n_heads = n_heads
 
-    def forward_post(self,
-                     src,
-                     src_mask: Optional[Tensor] = None,
-                     src_key_padding_mask: Optional[Tensor] = None,
-                     pos: Optional[Tensor] = None):
-        q = k = self.with_pos_embed(src, pos)
-        value = src
-        src2 = self.slf_attn(q, k, value=value, attn_mask=src_mask,
-                              key_padding_mask=src_key_padding_mask)[0]
-        src = src + self.dropout1(src2)
-        src = self.norm1(src)
-
-        if self.use_ffn:
-            src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-            src = src + self.dropout2(src2)
-            src = self.norm2(src)
-
-        return src
-
-    def forward_pre(self, src,
-                    src_mask: Optional[Tensor] = None,
-                    src_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = None,
-                    return_attn_weights: Optional [Tensor] = False):
-
-        src2 = self.norm1(src)
-        value = src2
-        q = k = self.with_pos_embed(src2, pos)
-        src2, attn_weights = self.slf_attn(q, k, value=value, attn_mask=src_mask,
-                            key_padding_mask=src_key_padding_mask)
-        src = src + self.dropout1(src2)
-
-        if self.use_ffn:
-            src2 = self.norm2(src)
-            src2 = self.linear2(self.dropout(self.activation(self.linear1(src2))))
-            src = src + self.dropout2(src2)
-
-        if return_attn_weights:
-            return src, attn_weights
-
-        return src
+    def with_pos_embed(self, x, pos: Optional[Tensor]):
+        return x if pos is None else x + pos
 
     def forward(self, src,
                 src_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None,
-                return_attn_weights: Optional [Tensor] = False):
-        if self.normalize_before:
-            return self.forward_pre(src, src_mask, src_key_padding_mask, pos, return_attn_weights)
-        return self.forward_post(src, src_mask, src_key_padding_mask, pos)
+                src_pos: Optional[Tensor] = None,
+                return_attn_weights: Optional [Tensor] = False
+        ):
 
+        residual = src
+
+        if self.pre_norm:
+            src = self.norm(src)
+        
+        q = k = self.with_pos_embed(src, src_pos)
+        v = src
+
+        output, slf_attn_weights = self.slf_attn(q, k, v, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
+        output = self.dropout(output)
+        output += residual
+
+        if not self.pre_norm:
+            output = self.norm(output)
+
+        output = self.ffn(output)
+
+        if return_attn_weights:
+            return output, slf_attn_weights
+        else:
+            return output, None
+        
     def extra_repr(self):
         st = ""
         if hasattr(self.slf_attn, "dropout"):
@@ -166,12 +193,9 @@ class TransformerEncoderLayer(nn.Module):
 
 class TransformerEncoder(nn.Module):
 
-    def __init__(self, enc_layer, enc_n_layers,
-                 norm=None, weight_init_name="xavier_uniform"):
+    def __init__(self, enc_layer, enc_n_layers, weight_init_name="xavier_uniform"):
         super().__init__()
         self.layers = get_clones(enc_layer, enc_n_layers)
-        self.num_layers = enc_n_layers
-        self.norm = norm
         self._reset_parameters(weight_init_name)
 
     def _reset_parameters(self, weight_init_name):
@@ -181,23 +205,28 @@ class TransformerEncoder(nn.Module):
                 func(p)
 
     def forward(self, src,
-                mask: Optional[Tensor] = None,
+                src_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None,
-                xyz: Optional [Tensor] = None,
+                src_pos: Optional [Tensor] = None,
                 transpose_swap: Optional[bool] = False,
-                ):
+                return_attn_weights = False
+        ):
+
         if transpose_swap:
             bs, c, h, w = src.shape
             src = src.flatten(2).permute(2, 0, 1)
-            if pos is not None:
-                pos = pos.flatten(2).permute(2, 0, 1)
+            if src_pos is not None:
+                src_pos = src_pos.flatten(2).permute(2, 0, 1)
+
         output = src
-        orig_mask = mask
+
+        slf_attns = []
+
+        orig_mask = src_mask
         if orig_mask is not None and isinstance(orig_mask, list):
             assert len(orig_mask) == len(self.layers)
         elif orig_mask is not None:
-            orig_mask = [mask for _ in range(len(self.layers))]
+            orig_mask = [src_mask for _ in range(len(self.layers))]
 
         for idx, layer in enumerate(self.layers):
             if orig_mask is not None:
@@ -208,16 +237,17 @@ class TransformerEncoder(nn.Module):
                 mask = mask.unsqueeze(1)
                 mask = mask.repeat(1, n_heads, 1, 1)
                 mask = mask.view(bsz * n_heads, n, n)
-            output = layer(output, src_mask=mask,
-                           src_key_padding_mask=src_key_padding_mask, pos=pos)
-
-        if self.norm is not None:
-            output = self.norm(output)
+            output, slf_attn_weights = layer(output, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask, src_pos=src_pos)
+            if return_attn_weights:
+                slf_attns.append(slf_attn_weights)
 
         if transpose_swap:
             output = output.permute(1, 2, 0).view(bs, c, h, w).contiguous()
 
-        return xyz, output
+        if return_attn_weights:
+            return output, torch.stack(slf_attns)
+        else:
+            return output, None
 
 
 class MaskedTransformerEncoder(TransformerEncoder):
@@ -259,7 +289,7 @@ class MaskedTransformerEncoder(TransformerEncoder):
             mask = None
             if self.masking_radius[idx] > 0:
                 mask, xyz_dist = self.compute_mask(xyz, self.masking_radius[idx], xyz_dist)
-                # mask must be tiled to num_heads of the transformer
+                # mask must be tiled to n_heads of the transformer
                 bsz, n, n = mask.shape
                 n_heads = layer.n_heads
                 mask = mask.unsqueeze(1)
@@ -290,122 +320,81 @@ class MaskedTransformerEncoder(TransformerEncoder):
 
 class TransformerDecoderLayer(nn.Module):
 
-    def __init__(self, d_model, n_heads=4, d_ffn=256,
-                 dropout=0.1, dropout_attn=None,
-                 activation="relu", normalize_before=True,
-                 norm_fn_name="ln"):
+    def __init__(self, d_model=1024, d_ffn=2048, n_heads=8, dropout=0.1, dropout_attn=None, 
+        activation="gelu", pre_norm=True, norm_name="ln"):
         super().__init__()
         if dropout_attn is None:
             dropout_attn = dropout
+
         self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
         self.crs_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
 
-        self.norm1 = NORM_DICT[norm_fn_name](d_model)
-        self.norm2 = NORM_DICT[norm_fn_name](d_model)
+        self.ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
+                pre_norm=pre_norm, norm_name=norm_name, dropout=dropout)
 
-        self.norm3 = NORM_DICT[norm_fn_name](d_model)
-        self.dropout1 = nn.Dropout(dropout, inplace=True)
-        self.dropout2 = nn.Dropout(dropout, inplace=True)
-        self.dropout3 = nn.Dropout(dropout, inplace=True)
-
-        # Implementation of Feedforward model
-        self.linear1 = nn.Linear(d_model, d_ffn)
+        self.norm = NORM_DICT[norm_name](d_model)
         self.dropout = nn.Dropout(dropout, inplace=True)
-        self.linear2 = nn.Linear(d_ffn, d_model)
-
         self.activation = ACTIVATION_DICT[activation]()
-        self.normalize_before = normalize_before
+
+        self.pre_norm = pre_norm
 
     def with_pos_embed(self, tensor, pos: Optional[Tensor]):
         return tensor if pos is None else tensor + pos
 
-    def forward_post(self, tgt, memory,
-                     tgt_mask: Optional[Tensor] = None,
-                     memory_mask: Optional[Tensor] = None,
-                     tgt_key_padding_mask: Optional[Tensor] = None,
-                     memory_key_padding_mask: Optional[Tensor] = None,
-                     pos: Optional[Tensor] = None,
-                     query_pos: Optional[Tensor] = None,
-                     return_attn_weights: Optional [bool] = False):
-        q = k = self.with_pos_embed(tgt, query_pos)
-        tgt2 = self.slf_attn(q, k, value=tgt, attn_mask=tgt_mask,
-                              key_padding_mask=tgt_key_padding_mask)[0]
-        tgt = tgt + self.dropout1(tgt2)
-        tgt = self.norm1(tgt)
-
-        tgt2, attn = self.crs_attn(query=self.with_pos_embed(tgt, query_pos),
-                                   key=self.with_pos_embed(memory, pos),
-                                   value=memory, attn_mask=memory_mask,
-                                   key_padding_mask=memory_key_padding_mask)
-        tgt = tgt + self.dropout2(tgt2)
-        tgt = self.norm2(tgt)
-
-        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
-        tgt = tgt + self.dropout3(tgt2)
-        tgt = self.norm3(tgt)
-
-        if return_attn_weights:
-            return tgt, attn
-
-        return tgt, None
-
-    def forward_pre(self, tgt, memory,
-                    tgt_mask: Optional[Tensor] = None,
-                    memory_mask: Optional[Tensor] = None,
-                    tgt_key_padding_mask: Optional[Tensor] = None,
-                    memory_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = None,
-                    query_pos: Optional[Tensor] = None,
-                    return_attn_weights: Optional [bool] = False):
-        tgt2 = self.norm1(tgt)
-        q = k = self.with_pos_embed(tgt2, query_pos)
-        tgt2 = self.slf_attn(q, k, value=tgt2, attn_mask=tgt_mask,
-                              key_padding_mask=tgt_key_padding_mask)[0]
-        tgt = tgt + self.dropout1(tgt2)
-        tgt2 = self.norm2(tgt)
-
-        tgt2, attn = self.crs_attn(query=self.with_pos_embed(tgt2, query_pos),
-                                   key=self.with_pos_embed(memory, pos),
-                                   value=memory, attn_mask=memory_mask,
-                                   key_padding_mask=memory_key_padding_mask)
-        tgt = tgt + self.dropout2(tgt2)
-        tgt2 = self.norm3(tgt)
-
-        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
-        tgt = tgt + self.dropout3(tgt2)
-
-        if return_attn_weights:
-            return tgt, attn
-
-        return tgt, None
-
-    def forward(self, tgt, memory,
-                tgt_mask: Optional[Tensor] = None,
+    def forward(self, trg, memory,
+                trg_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None,
-                tgt_key_padding_mask: Optional[Tensor] = None,
+                trg_key_padding_mask: Optional[Tensor] = None,
                 memory_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None,
-                query_pos: Optional[Tensor] = None,
-                return_attn_weights: Optional [bool] = False):
-        if self.normalize_before:
-            return self.forward_pre(tgt, memory, tgt_mask, memory_mask,
-                                    tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, return_attn_weights)
-        return self.forward_post(tgt, memory, tgt_mask, memory_mask,
-                                 tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, return_attn_weights)
+                src_pos: Optional[Tensor] = None,
+                trg_pos: Optional[Tensor] = None,
+                return_attn_weights: Optional [bool] = False
+        ):
+
+        residual = trg
+
+        if self.pre_norm:
+            trg = self.norm(trg)
+
+        q = k = self.with_pos_embed(trg, trg_pos)
+        v = trg
+
+        output, slf_attn_weights = self.slf_attn(q, k, v, attn_mask=trg_mask, key_padding_mask=trg_key_padding_mask)
+        output = self.dropout(output)
+        output += residual
+
+        if not self.pre_norm:
+            output = self.norm(output)
+
+        residual = output
+
+        if self.pre_norm:
+            output = self.norm(output)
+        
+        q = self.with_pos_embed(output, trg_pos)
+        k = self.with_pos_embed(memory, src_pos)
+        v = memory
+
+        output, crs_attn_weights = self.crs_attn(q, k, v, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask)
+        output = self.dropout(output)
+        output += residual
+
+        if not self.pre_norm:
+            output = self.norm(output)
+
+        output = self.ffn(output)
+
+        if return_attn_weights:
+            return output, slf_attn_weights, crs_attn_weights
+        else:
+            return output, None, None
 
 
 class TransformerDecoder(nn.Module):
 
-    def __init__(self, dec_layer, dec_n_layers, norm_fn_name="ln",
-                return_intermediate=False,
-                weight_init_name="xavier_uniform"):
+    def __init__(self, dec_layer, dec_n_layers, weight_init_name="xavier_uniform", ):
         super().__init__()
         self.layers = get_clones(dec_layer, dec_n_layers)
-        self.num_layers = dec_n_layers
-        self.norm = None
-        if norm_fn_name is not None:
-            self.norm = NORM_DICT[norm_fn_name](self.layers[0].linear2.out_features)
-        self.return_intermediate = return_intermediate
         self._reset_parameters(weight_init_name)
 
     def _reset_parameters(self, weight_init_name):
@@ -414,51 +403,49 @@ class TransformerDecoder(nn.Module):
             if p.dim() > 1:
                 func(p)
 
-    def forward(self, tgt, memory,
-                tgt_mask: Optional[Tensor] = None,
+    def forward(self, trg, memory,
+                trg_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None,
-                tgt_key_padding_mask: Optional[Tensor] = None,
+                trg_key_padding_mask: Optional[Tensor] = None,
                 memory_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None,
-                query_pos: Optional[Tensor] = None,
+                src_pos: Optional[Tensor] = None,
+                trg_pos: Optional[Tensor] = None,
                 transpose_swap: Optional [bool] = False,
                 return_attn_weights: Optional [bool] = False,
-                ):
+                return_intermediate: Optional [bool] = False
+        ):
         if transpose_swap:
             bs, c, h, w = memory.shape
             memory = memory.flatten(2).permute(2, 0, 1) # memory: bs, c, t -> t, b, c
-            if pos is not None:
-                pos = pos.flatten(2).permute(2, 0, 1)
-        output = tgt
+            if src_pos is not None:
+                src_pos = src_pos.flatten(2).permute(2, 0, 1)
+
+        output = trg
 
         intermediate = []
-        attns = []
+        slf_attns = []
+        crs_attns = []
 
         for layer in self.layers:
-            output, attn = layer(output, memory, tgt_mask=tgt_mask,
-                           memory_mask=memory_mask,
-                           tgt_key_padding_mask=tgt_key_padding_mask,
-                           memory_key_padding_mask=memory_key_padding_mask,
-                           pos=pos, query_pos=query_pos,
-                           return_attn_weights=return_attn_weights)
-            if self.return_intermediate:
-                intermediate.append(self.norm(output))
-            if return_attn_weights:
-                attns.append(attn)
-
-        if self.norm is not None:
-            output = self.norm(output)
-            if self.return_intermediate:
-                intermediate.pop()
+            output, slf_attn_weights, crs_attn_weights = layer(output, memory, trg_mask=trg_mask, memory_mask=memory_mask,
+                           trg_key_padding_mask=trg_key_padding_mask, memory_key_padding_mask=memory_key_padding_mask,
+                           src_pos=src_pos, trg_pos=trg_pos, return_attn_weights=return_attn_weights)
+            if return_intermediate:
                 intermediate.append(output)
+            if return_attn_weights:
+                slf_attns.append(slf_attn_weights)
+                crs_attns.append(crs_attn_weights)
 
         if return_attn_weights:
-            attns = torch.stack(attns)
-
-        if self.return_intermediate:
-            return torch.stack(intermediate), attns
-
-        return output, attns
+            if return_intermediate:
+                return torch.stack(intermediate), torch.stack(slf_attns), torch.stack(crs_attns)
+            else:
+                return output, torch.stack(slf_attns), torch.stack(crs_attns)
+        else:
+            if return_intermediate:
+                return torch.stack(intermediate), None, None
+            else:
+                return output, None, None
 
 
 class Transformer(nn.Module):
@@ -467,21 +454,30 @@ class Transformer(nn.Module):
     def __init__(self, args):
 
         super().__init__()
-        self.enc_embedding = EncoderEmbedding(
+        self.enc_embedding = InputEmbedding(
             d_i=args.d_i,
-            d_h1=args.enc_emb_d_h1,
-            d_h2=args.enc_emb_d_h2,
-            d_h3=args.enc_emb_d_h3,
-            d_model=args.d_model,
+            d_h1=args.d_h1,
+            d_h2=args.d_h2,
+            d_h3=args.d_h3,
+            d_o=args.d_model,
             nsample=args.nsample
+        )
+
+        self.enc_pos_embedding = PositionEmbeddingLearned(
+            d_i=args.d_i,
+            d_h1=args.d_h1,
+            d_h2=args.d_h2, 
+            d_o=args.d_model
         )
     
         self.enc_layer = TransformerEncoderLayer(
-            d_model=args.enc_d_model,
-            n_heads=args.enc_n_heads,
-            d_ffn=args.enc_d_ffn,
-            dropout=args.enc_dropout,
-            activation=args.enc_activation,
+            d_model=args.d_model,
+            d_ffn=args.d_ffn,
+            n_heads=args.n_heads,
+            dropout=args.dropout,
+            activation=args.activation,
+            pre_norm=args.pre_norm,
+            norm_name=args.norm_name
         )
 
         self.encoder = TransformerEncoder(
@@ -490,45 +486,51 @@ class Transformer(nn.Module):
         )
 
         if hasattr(self.encoder, "masking_radius"):
-            hidden_dims = [args.enc_d_model]
+            hidden_dims = [args.d_model]
         else:
-            hidden_dims = [args.enc_d_model, args.enc_d_model]
+            hidden_dims = [args.d_model, args.d_model]
 
         self.enc2dec_prj = GenericMLP(
-            input_dim=args.enc_d_model,
+            input_dim=args.d_model,
             hidden_dims=hidden_dims,
-            output_dim=args.dec_d_model,
-            norm_fn_name="bn1d",
-            activation="relu",
+            output_dim=args.d_model,
+            norm_name=args.norm_name,
+            activation=args.activation,
             use_conv=True,
             output_use_activation=True,
             output_use_norm=True,
             output_use_bias=False,
         )
 
-        self.pos_embedding = PositionEmbeddingCoordsSine(
-            d_pos=args.dec_d_model, 
-            pos_type=args.position_embedding, 
-            normalize=False
-        )
 
         self.query_prj = GenericMLP(
-            input_dim=args.dec_d_model,
-            hidden_dims=[args.dec_d_model],
-            output_dim=args.dec_d_model,
+            input_dim=args.d_model,
+            hidden_dims=[args.d_model],
+            output_dim=args.d_model,
+            norm_name=args.norm_name,
+            activation=args.activation,
             use_conv=True,
             output_use_activation=True,
             hidden_use_bias=True,
         )
 
+        self.dec_pos_embedding = PositionEmbeddingLearned(
+            d_i=args.d_i,
+            d_h1=args.d_h1,
+            d_h2=args.d_h2, 
+            d_o=args.d_model
+        )
+
         self.num_queries = args.num_queries
 
         self.dec_layer = TransformerDecoderLayer(
-            d_model=args.dec_d_model,
-            n_heads=args.dec_n_heads,
-            d_ffn=args.dec_d_ffn,
-            dropout=args.dec_dropout,
-            activation=args.dec_activation
+            d_model=args.d_model,
+            d_ffn=args.d_ffn,
+            n_heads=args.n_heads,
+            dropout=args.dropout,
+            activation=args.activation,
+            pre_norm=args.pre_norm,
+            norm_name=args.norm_name
         )
 
         self.decoder = TransformerDecoder(
@@ -536,7 +538,7 @@ class Transformer(nn.Module):
             dec_n_layers=args.dec_n_layers
         )
 
-        self.trg_prj = nn.Linear(args.dec_d_model, args.d_o, bias=False)
+        self.trg_prj = nn.Linear(args.d_model, args.d_o, bias=False)
 
         for p in self.parameters():
             if p.dim() > 1:
@@ -544,10 +546,10 @@ class Transformer(nn.Module):
 
         'To facilitate the residual connections, the dimensions of all module outputs shall be the same.'
 
-    def get_query_embeddings(self, encoder_xyz, point_cloud_dims):
-        query_inds = furthest_point_sample(encoder_xyz, self.num_queries)
+    def get_query_embeddings(self, xyz):
+        query_inds = furthest_point_sample(xyz, self.num_queries)
         query_inds = query_inds.long()
-        query_xyz = [torch.gather(encoder_xyz[..., x], 1, query_inds) for x in range(3)]
+        query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
         query_xyz = torch.stack(query_xyz)
         query_xyz = query_xyz.permute(1, 2, 0)
 
@@ -555,43 +557,37 @@ class Transformer(nn.Module):
         # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
         # query_xyz = gather_operation(xyz_flipped, query_inds.int())
         # query_xyz = query_xyz.transpose(1, 2)
-        pos_embed = self.pos_embedding(query_xyz, input_range=point_cloud_dims)
-        query_embed = self.query_prj(pos_embed)
-        return query_xyz, query_embed
+        query_pos = self.dec_pos_embedding(query_xyz)
+        query_embed = self.query_prj(query_pos)
+        return query_embed, query_pos
 
 
-    def forward(self, x, encoder_only=False):
-        pre_enc_features = self.enc_embedding(x)                                            # (bs, channel, npoints)
+    def forward(self, xyz, encoder_only=False):
+        src_pos = self.enc_pos_embedding(xyz)                                               # (B, C, N)
+        src_pos = src_pos.permute(2, 0, 1)
 
-        # nn.MultiHeadAttention in encoder expects features of size (npoints, bs, channel)
+        pre_enc_features = self.enc_embedding(xyz)                                          # (B, C, N)
+        # nn.MultiHeadAttention in encoder expects features of size (N, B, C)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
-        enc_xyz, enc_features = self.encoder(pre_enc_features, xyz=x)                       # (npoints, bs, channel)
-
-        enc_features = enc_features.permute(1, 2, 0)                                        # (bs, channel, npoint)     
-        enc_features = self.enc2dec_prj(enc_features)                                       # (bs, channel, npoint)
-        enc_features = enc_features.permute(2, 0, 1)                                        # (npoints, bs, channel) 
+        enc_features = self.encoder(pre_enc_features, src_pos=src_pos)[0]                   # (N, B, C)
+        enc_features = enc_features.permute(1, 2, 0)                                        # (B, C, N)     
+        enc_features = self.enc2dec_prj(enc_features)                                       # (B, C, N)
+        enc_features = enc_features.permute(2, 0, 1)                                        # (N, B, C) 
 
         if encoder_only:
-            return enc_xyz, enc_features.transpose(0, 1)                                    # (bs, npoints, channel)
+            return enc_features.permute(1, 0, 2)                                            # (B, N, C)
 
-        point_cloud_dims = [enc_features.shape[-1], enc_features.shape[-1]] 
+        trg, trg_pos = self.get_query_embeddings(xyz)                                       # (B, C, N)
 
-        query_xyz, query_embed = self.get_query_embeddings(enc_xyz, point_cloud_dims)
-        # query_embed: (bs, channel, npoints)
-        enc_pos = self.pos_embedding(enc_xyz, input_range=point_cloud_dims)
+        # nn.MultiHeadAttention in decoder expects features of size (N, B, C)
+        trg = trg.permute(2, 0, 1)
+        trg_pos = trg_pos.permute(2, 0, 1)
+        dec_features = self.decoder(trg, enc_features, src_pos=src_pos, trg_pos=trg_pos)[0]         # (J, B, C)
 
-        # nn.MultiHeadAttention in decoder expects features of size (npoints, bs, channel)
-        enc_pos = enc_pos.permute(2, 0, 1)
-        query_embed = query_embed.permute(2, 0, 1)
-        trg = torch.zeros_like(query_embed)
+        output = self.trg_prj(dec_features.permute(1, 0, 2))                                        # (B, J, C)
 
-        dec_features, _ = self.decoder(trg, enc_features, query_pos=query_embed, pos=enc_pos)   # (j, bs, channel)
-
-
-        y = self.trg_prj(dec_features.permute(1, 0, 2))
-
-        return y
+        return output
 
     
 class SMPLModel_torch(nn.Module):

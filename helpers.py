@@ -48,7 +48,7 @@ class GenericMLP(nn.Module):
         input_dim,
         hidden_dims,
         output_dim,
-        norm_fn_name=None,
+        norm_name=None,
         activation="relu",
         use_conv=False,
         dropout=None,
@@ -61,9 +61,9 @@ class GenericMLP(nn.Module):
         super().__init__()
         activation = ACTIVATION_DICT[activation]
         norm = None
-        if norm_fn_name is not None:
-            norm = NORM_DICT[norm_fn_name]
-        if norm_fn_name == "ln" and use_conv:
+        if norm_name is not None:
+            norm = NORM_DICT[norm_name]
+        if norm_name == "ln" and use_conv:
             norm = lambda x: nn.GroupNorm(1, x)  # easier way to use LayerNorm
 
         if dropout is not None:
