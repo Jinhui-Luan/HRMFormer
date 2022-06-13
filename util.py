@@ -173,7 +173,7 @@ def sample_and_group(npoint, radius, nsample, xyz, points):
     return new_xyz, new_points                                              # (B, npoint, D), (B, npoint, nsample, 2D)
 
 
-def group(nsample, xyz, feature):
+def group(n_sample, xyz, feature):
     """
     Input:
         nsample: the number of neighbors in knn
@@ -181,9 +181,9 @@ def group(nsample, xyz, feature):
     Return:
         new_feature: (B, N, nsample, 2C)
     """
-    idx = knn_point(nsample, xyz, xyz)                                          # idx: (B, N, nsample)
-    grouped_feature = index_points(feature, idx)                                # grouped_feature: (B, N, nsample, C)
+    idx = knn_point(n_sample, xyz, xyz)                                          # idx: (B, N, n_sample)
+    grouped_feature = index_points(feature, idx)                                # grouped_feature: (B, N, n_sample, C)
     grouped_feature_norm = grouped_feature - feature.unsqueeze(2)
-    new_feature = torch.cat([grouped_feature_norm, feature.unsqueeze(2).repeat(1, 1, nsample, 1)], dim=-1)
+    new_feature = torch.cat([grouped_feature_norm, feature.unsqueeze(2).repeat(1, 1, n_sample, 1)], dim=-1)
     
-    return new_feature                                                          # new_feature: (B, N, nsample, 2C)
+    return new_feature                                                          # new_feature: (B, N, n_sample, 2C)

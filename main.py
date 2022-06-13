@@ -53,16 +53,16 @@ class WarmUpScheduledOptim():
         "Zero out the gradients with the inner optimizer"
         self.optimizer.zero_grad()
 
-    def _get_lr_scale(self):
+    def get_lr_scale(self):
         d_model = self.d_model
         n_steps, n_warmup_steps = self.n_steps, self.n_warmup_steps
-        return (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
+        return self.lr_mul * (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
 
     def _update_learning_rate(self):
         ''' Learning rate scheduling per step '''
 
         self.n_steps += 1
-        lr = self.lr_mul * self._get_lr_scale()
+        lr = self.get_lr_scale()
 
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
@@ -214,8 +214,8 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
     if not args.resume:
         with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') as log_vf:
-            log_tf.write('{:6}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe'))
-            log_vf.write('{:6}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe'))
+            log_tf.write('{:6}, {:8}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe', 'lr'))
+            log_vf.write('{:6}, {:8}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe', 'lr'))
 
     val_metrics = []
     
