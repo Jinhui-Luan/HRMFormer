@@ -502,7 +502,7 @@ class Transformer(nn.Module):
             output_use_bias=False,
         )
 
-        self.query_embed = nn.embedding(args.n_q, args.d_model)
+        self.query_embed = nn.Embedding(args.n_q, args.d_model)
 
         # self.query_prj = GenericMLP(
         #     input_dim=args.d_model,
@@ -560,7 +560,7 @@ class Transformer(nn.Module):
     #     # query_xyz = query_xyz.transpose(1, 2)
     #     query_pos = self.dec_pos_embedding(query_xyz)
     #     query_embed = self.query_prj(query_pos)
-    #     return query_embed, query_pos
+    #     return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
 
 
     def forward(self, xyz, encoder_only=False):
@@ -579,17 +579,16 @@ class Transformer(nn.Module):
         if encoder_only:
             return enc_features.permute(1, 0, 2)                                            # (B, N, C)
 
-        trg_pos = self.query_embed.weight
+        trg_pos = self.query_embed.weight                                                   # (n_q, C)
+        trg_pos = trg_pos.unsqueeze(1).repeat(1, xyz.shape[0], 1)                           # (n_q, B, C)                                
         trg = torch.zeros_like(trg_pos)
         
-        # trg, trg_pos = self.get_query_embeddings(xyz)                                       # (B, C, N)
+        # trg, trg_pos = self.get_query_embeddings(xyz)                                       # (n_q, B, C)
 
         # nn.MultiHeadAttention in decoder expects features of size (N, B, C)
-        trg = trg.permute(2, 0, 1)
-        trg_pos = trg_pos.permute(2, 0, 1)
-        dec_features = self.decoder(trg, enc_features, src_pos=src_pos, trg_pos=trg_pos)[0]         # (J, B, C)
+        dec_features = self.decoder(trg, enc_features, src_pos=src_pos, trg_pos=trg_pos)[0]         # (n_q, B, C)
 
-        output = self.trg_prj(dec_features.permute(1, 0, 2))                                        # (B, J, C)
+        output = self.trg_prj(dec_features.permute(1, 0, 2))                                        # (B, n_q, C)
 
         return output
 
