@@ -142,7 +142,7 @@ class TransformerEncoderLayer(nn.Module):
 
         self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout_attn)
 
-        self.ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
+        self.pos_ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
             pre_norm=pre_norm, norm_name=norm_name, dropout=dropout)
 
         self.norm = NORM_DICT[norm_name](d_model)
@@ -177,7 +177,7 @@ class TransformerEncoderLayer(nn.Module):
         if not self.pre_norm:
             output = self.norm(output)
 
-        output = self.ffn(output)
+        output = self.pos_ffn(output)
 
         if return_attn_weights:
             return output, slf_attn_weights
@@ -329,7 +329,7 @@ class TransformerDecoderLayer(nn.Module):
         self.slf_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
         self.crs_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
 
-        self.ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
+        self.pos_ffn = PositionwiseFeedForward(d_in=d_model, d_hid=d_ffn, activation=activation,
                 pre_norm=pre_norm, norm_name=norm_name, dropout=dropout)
 
         self.norm = NORM_DICT[norm_name](d_model)
@@ -382,7 +382,7 @@ class TransformerDecoderLayer(nn.Module):
         if not self.pre_norm:
             output = self.norm(output)
 
-        output = self.ffn(output)
+        output = self.pos_ffn(output)
 
         if return_attn_weights:
             return output, slf_attn_weights, crs_attn_weights

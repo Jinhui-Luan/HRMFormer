@@ -36,7 +36,8 @@ class BaseOptionParser():
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
 
         # optimizer
-        self.parser.add_argument('-base_lr', type=float, default=1e-5)
+        self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='step')
+        self.parser.add_argument('-base_lr', type=float, default=1e-4)
         self.parser.add_argument('-step_epoch', type=int, default=10)
         self.parser.add_argument('-warmup','--n_warmup_steps', type=int, default=24000)
         self.parser.add_argument('-lr_mul', type=float, default=0.1)

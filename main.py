@@ -44,28 +44,26 @@ class WarmUpScheduledOptim():
         self.n_warmup_steps = n_warmup_steps
         self.n_steps = 0
 
-    def step_and_update_lr(self):
+    def batch_step(self):
         "Step with the inner optimizer"
-        self._update_learning_rate()
+        self.update_lr()
         self.optimizer.step()
 
-    def zero_grad(self):
-        "Zero out the gradients with the inner optimizer"
-        self.optimizer.zero_grad()
+    def get_lr(self):
+        n_steps, n_warmup_steps, d_model, lr_mul = self.n_steps, self.n_warmup_steps, self.d_model, self.lr_mul
+        return lr_mul * (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
 
-    def get_lr_scale(self):
-        d_model = self.d_model
-        n_steps, n_warmup_steps = self.n_steps, self.n_warmup_steps
-        return self.lr_mul * (d_model ** (-0.5)) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
-
-    def _update_learning_rate(self):
+    def update_lr(self):
         ''' Learning rate scheduling per step '''
 
         self.n_steps += 1
-        lr = self.get_lr_scale()
+        lr = self.get_lr()
 
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
+    
+    def epoch_step(self):
+        return
 
 
 class StepScheduledOptim():
@@ -78,6 +76,9 @@ class StepScheduledOptim():
         self.total_epoch = total_epoch
         self.clip = clip
         self.epoch = 1
+
+    def batch_step(self):
+        self.optimizer.step()
 
     def get_lr(self):
         if self.epoch < self.step_epoch:
@@ -96,6 +97,9 @@ class StepScheduledOptim():
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
 
+    def epoch_step(self):
+        self.update_lr()
+
 
 class CosineScheduledOptim():
     ''' A simple wrapper class for learning rate scheduling '''
@@ -107,6 +111,9 @@ class CosineScheduledOptim():
         self.total_epoch = total_epoch
         self.clip = clip
         self.epoch = 1
+
+    def batch_step(self):
+        self.optimizer.step()
 
     def get_lr(self):
         if self.epoch < self.step_epoch:
@@ -123,6 +130,9 @@ class CosineScheduledOptim():
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
         
+    def epoch_step(self):
+        self.update_lr()
+
 
 def init_random_seed(seed):
     torch.manual_seed(seed)
@@ -219,7 +229,7 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
     val_metrics = []
     
-    for i in range(start_epoch, args.total_epoch):
+    for i in range(start_epoch, args.total_epoch+1):
         print('[ Epoch', i, ']')
 
         # train epoch
@@ -289,7 +299,7 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         l = l_data + l_joint + l_vertex
         l.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-        scheduler.optimizer.step()
+        scheduler.batch_step()
 
         mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
         mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
@@ -298,7 +308,7 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         MPJPE.append(mpjpe.clone().detach())
         MPVPE.append(mpvpe.clone().detach())
     
-    scheduler.update_lr()
+    scheduler.epoch_step()
         
     return torch.Tensor(loss).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
@@ -425,10 +435,16 @@ def main():
 
         # create optimizer and scheduler
         optimizer = AdamW(model.parameters(), lr=args.base_lr, betas=(0.9, 0.98), eps=1e-9)
-        scheduler = StepScheduledOptim(optimizer, args.base_lr, args.step_epoch, args.total_epoch)
+        if args.optim == 'step':
+            scheduler = StepScheduledOptim(optimizer, args.base_lr, args.step_epoch, args.total_epoch)
+        elif args.optim == 'cosine':
+            scheduler = CosineScheduledOptim(optimizer, args.base_lr, args.step_epoch, args.total_epoch)
+        elif args.optim == 'warmup':
+            scheduler = WarmUpScheduledOptim(optimizer, args.lr_mul, args.d_model, args.n_warmup_steps)
         
         # training
         train(model, dl_train, dl_val, scheduler, device, args)
+
     elif args.mode == 'test':
         model_path = os.path.join(args.model_save_path, 'model_best.chkpt')
         checkpoint = torch.load(model_path)
