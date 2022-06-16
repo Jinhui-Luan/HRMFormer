@@ -20,6 +20,7 @@ class BaseOptionParser():
         self.parser.add_argument('-n_q', type=int, default=24, help='the number of object queries')
         self.parser.add_argument('-activation', type=str, choices=['relu', 'gelu', 'leakyrelu'], default='gelu')
         self.parser.add_argument('-norm_name', type=str, choices=['bn', 'bn1d', 'id', 'ln'], default='ln')
+        self.parser.add_argument('-pct_emb', action='store_true', help='pct embedding or mlp embedding')
         self.parser.add_argument('-pre_norm', action='store_true', help='pre norm or post norm')
         self.parser.add_argument('-mode', type=str, choices=['train', 'test'], default='train')
 
@@ -36,7 +37,7 @@ class BaseOptionParser():
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
 
         # optimizer
-        self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='step')
+        self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='cosine')
         self.parser.add_argument('-base_lr', type=float, default=1e-4)
         self.parser.add_argument('-step_epoch', type=int, default=20)
         self.parser.add_argument('-warmup','--n_warmup_steps', type=int, default=24000)

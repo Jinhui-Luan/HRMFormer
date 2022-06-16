@@ -53,7 +53,7 @@ class GenericMLP(nn.Module):
         use_conv=False,
         dropout=None,
         hidden_use_bias=False,
-        output_use_bias=True,
+        output_use_bias=False,
         output_use_activation=False,
         output_use_norm=False,
         weight_init_name=None,

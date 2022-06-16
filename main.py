@@ -83,7 +83,7 @@ class StepScheduledOptim():
     def get_lr(self):
         if self.epoch < self.step_epoch:
             lr = self.base_lr
-        elif self.epoch < self.step_epoch * 2:
+        elif self.epoch < self.step_epoch * 3:
             lr = self.base_lr / 10
         else:
             lr = self.base_lr / 100
@@ -174,8 +174,8 @@ def get_data_loader(basic_path, batch_size, mode, interval):
 
 
 def print_performances(header, loss, mpjpe, mpvpe, lr, start_time):
-    print(' - {:12} loss: {:8.6f}, mpjpe: {:8.6f}, mpvpe: {:8.6f}, lr: {:10.8f}, time cost: {:3.2f} min'.format(
-          f"({header})", loss, mpjpe, mpvpe, lr, (time.time()-start_time)/60))
+    print(' - {:12} loss: {:6.4f}, mpjpe: {:6.4f}, mpvpe: {:6.4f}, lr: {:10.8f}, time cost: {:4.2f} min'.format(
+        f"({header})", loss, mpjpe, mpvpe, lr, (time.time()-start_time)/60))
 
 
 def load_checkpoint(model, args, device, start_epoch, scheduler=None):
@@ -214,7 +214,7 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
     # use tensorboard to plot curves
     if not args.no_tb:
-        writer = SummaryWriter(os.path.join(args.log_save_path, 'tensorboard'))
+        writer = SummaryWriter(os.path.join(args.log_save_path, 'tb'))
 
     log_train_file = os.path.join(args.log_save_path, 'train.log')
     log_valid_file = os.path.join(args.log_save_path, 'valid.log')
@@ -224,8 +224,10 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
     if not args.resume:
         with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') as log_vf:
-            log_tf.write('{:6}, {:8}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe', 'lr'))
-            log_vf.write('{:6}, {:8}, {:8}, {:8}, {:8}\n'.format('epoch', 'loss', 'mpjpe', 'mpvpe', 'lr'))
+            log_tf.write('{:4}, {:6}, {:6}, {:6}, {:6}, {:6}, {:6}, {:10}\n'.format(
+                'epoch', 'l', 'l_d', 'l_j', 'l_v', 'mpjpe', 'mpvpe', 'lr'))
+            log_vf.write('{:4}, {:6}, {:6}, {:6}, {:6}, {:6}, {:6}, {:10}\n'.format(
+                'epoch', 'l', 'l_d', 'l_j', 'l_v', 'mpjpe', 'mpvpe', 'lr'))
 
     val_metrics = []
     
@@ -234,14 +236,15 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
         # train epoch
         start = time.time()
-        train_loss, train_mpjpe, train_mpvpe = train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, device, args)
+        train_l, train_ld, train_lj, train_lv, train_mpjpe, train_mpvpe = train_epoch(
+            model, smpl_model, dataloader_train, scheduler, criterion, device, args)
         lr = scheduler.optimizer.param_groups[0]['lr']
-        print_performances('Training', train_loss, train_mpjpe, train_mpvpe, lr, start)
+        print_performances('Training', train_l, train_mpjpe, train_mpvpe, lr, start)
 
         # validation epoch
         start = time.time()
-        val_loss, val_mpjpe, val_mpvpe = val_epoch(model, smpl_model, dataloader_val, criterion, device, args)
-        print_performances('Validation', val_loss, val_mpjpe, val_mpvpe, lr, start)
+        val_l, val_ld, val_lj, val_lv, val_mpjpe, val_mpvpe = val_epoch(model, smpl_model, dataloader_val, criterion, device)
+        print_performances('Validation', val_l, val_mpjpe, val_mpvpe, lr, start)
 
         val_metric = 0.5 * val_mpjpe + 0.5 * val_mpvpe
         val_metrics.append(val_metric)
@@ -260,19 +263,27 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
             print(' - [Info] The model file has been saved for every {} epochs.'.format(args.interval))
 
         with open(log_train_file, 'a') as log_tf, open(log_valid_file, 'a') as log_vf:
-            log_tf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}, {:10.8f}\n'.format(i, train_loss, train_mpjpe, train_mpvpe, lr))
-            log_vf.write('{:6d}: {:8.6f}, {:8.6f}, {:8.6f}, {:10.8f}\n'.format(i, val_loss, val_mpjpe, val_mpvpe, lr))
+            log_tf.write('{:4d}: {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:10.8f}\n'.format(
+                i, train_l, train_ld, train_lj, train_lv, train_mpjpe, train_mpvpe, lr))
+            log_vf.write('{:4d}: {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:6.4f}, {:10.8f}\n'.format(
+                i, val_l, val_ld, val_lj, val_lv, val_mpjpe, val_mpvpe, lr))
 
         if not args.no_tb:
-            writer.add_scalars('Loss',{'Train': train_loss, 'Val': val_loss}, i)
-            writer.add_scalars('MPJPE',{'Train': train_mpjpe, 'Val': val_mpjpe}, i)
-            writer.add_scalars('MPVPE',{'Train': train_mpvpe, 'Val': val_mpvpe}, i)
-            writer.add_scalar('learning_rate', lr, i)
+            writer.add_scalars('l',{'train': train_l, 'val': val_l}, i)
+            writer.add_scalars('l_d',{'train': train_ld, 'val': val_ld}, i)
+            writer.add_scalars('l_j',{'train': train_lj, 'val': val_lj}, i)
+            writer.add_scalars('l_v',{'train': train_lv, 'val': val_lv}, i)
+            writer.add_scalars('mpjpe',{'train': train_mpjpe, 'val': val_mpjpe}, i)
+            writer.add_scalars('mpvpe',{'train': train_mpvpe, 'val': val_mpvpe}, i)
+            writer.add_scalar('lr', lr, i)
 
 
 def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, device, args):
     model.train()
     loss = []
+    loss_data = []
+    loss_joint = []
+    loss_vertex = []
     MPJPE = []
     MPVPE = []
 
@@ -305,17 +316,25 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
         
         loss.append(l)
+        loss_data.append(l_data)
+        loss_joint.append(l_joint)
+        loss_vertex.append(l_vertex)
+
         MPJPE.append(mpjpe.clone().detach())
         MPVPE.append(mpvpe.clone().detach())
     
     scheduler.epoch_step()
         
-    return torch.Tensor(loss).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
+    return torch.Tensor(loss).mean(), torch.Tensor(loss_data).mean(), torch.Tensor(loss_joint).mean(), \
+        torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
 
-def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
+def val_epoch(model, smpl_model, dataloader_val, criterion, device):
     model.eval()
     loss = []
+    loss_data = []
+    loss_joint = []
+    loss_vertex = []
     MPJPE = []
     MPVPE = []
 
@@ -345,10 +364,14 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
             loss.append(l)
+            loss_data.append(l_data)
+            loss_joint.append(l_joint)
+            loss_vertex.append(l_vertex)
             MPJPE.append(mpjpe.clone().detach())
             MPVPE.append(mpvpe.clone().detach())
 
-    return torch.Tensor(loss).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
+    return torch.Tensor(loss).mean(), torch.Tensor(loss_data).mean(), torch.Tensor(loss_joint).mean(), \
+        torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
     
 
 def test(model, dataloader_test, device, args):
@@ -358,6 +381,9 @@ def test(model, dataloader_test, device, args):
 
     model.eval()
     loss = []
+    loss_data = []
+    loss_joint = []
+    loss_vertex = []
     MPJPE = []
     MPVPE = []
 
@@ -387,10 +413,14 @@ def test(model, dataloader_test, device, args):
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
             loss.append(l)
+            loss_data.append(l_data)
+            loss_joint.append(l_joint)
+            loss_vertex.append(l_vertex)
             MPJPE.append(mpjpe.clone().detach())
             MPVPE.append(mpvpe.clone().detach())
 
-    return torch.Tensor(loss).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
+    return torch.Tensor(loss).mean(), torch.Tensor(loss_data).mean(), torch.Tensor(loss_joint).mean(), \
+        torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
 
 def main():

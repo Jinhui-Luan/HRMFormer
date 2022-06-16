@@ -75,7 +75,7 @@ class Local_op(nn.Module):
         return x6
 
 
-class InputEmbedding(nn.Module):
+class PctEmbedding(nn.Module):
     def __init__(self, d_i=3, d_h1=64, d_h2=256, d_h3=512, d_o=1024, n_sample=8):
         super().__init__()
         self.conv1 = nn.Conv1d(d_i, d_h1, kernel_size=1, bias=False)
@@ -454,13 +454,23 @@ class Transformer(nn.Module):
     def __init__(self, args):
 
         super().__init__()
-        self.enc_embedding = InputEmbedding(
-            d_i=args.d_i,
-            d_h1=args.d_h1,
-            d_h2=args.d_h2,
-            d_h3=args.d_h3,
-            d_o=args.d_model,
-            n_sample=args.n_sample
+        if args.pct_emb:
+            self.enc_embedding = PctEmbedding(
+                d_i=args.d_i,
+                d_h1=args.d_h1,
+                d_h2=args.d_h2,
+                d_h3=args.d_h3,
+                d_o=args.d_model,
+                n_sample=args.n_sample
+            )
+        else:
+            self.enc_embedding = GenericMLP(
+            input_dim=args.d_i,
+            hidden_dims=[args.d_model, args.d_ffn],
+            output_dim=args.d_model,
+            norm_name=args.norm_name,
+            activation=args.activation,
+            use_conv=True
         )
 
         self.enc_pos_embedding = PositionEmbeddingLearned(
@@ -504,25 +514,25 @@ class Transformer(nn.Module):
 
         self.query_embed = nn.Embedding(args.n_q, args.d_model)
 
-        # self.query_prj = GenericMLP(
-        #     input_dim=args.d_model,
-        #     hidden_dims=[args.d_model],
-        #     output_dim=args.d_model,
-        #     norm_name=args.norm_name,
-        #     activation=args.activation,
-        #     use_conv=True,
-        #     output_use_activation=True,
-        #     hidden_use_bias=True,
-        # )
+        self.query_prj = GenericMLP(
+            input_dim=args.d_model,
+            hidden_dims=[args.d_model],
+            output_dim=args.d_model,
+            norm_name=args.norm_name,
+            activation=args.activation,
+            use_conv=True,
+            output_use_activation=True,
+            hidden_use_bias=True,
+        )
 
-        # self.dec_pos_embedding = PositionEmbeddingLearned(
-        #     d_i=args.d_i,
-        #     d_h1=args.d_h1,
-        #     d_h2=args.d_h2, 
-        #     d_o=args.d_model
-        # )
+        self.dec_pos_embedding = PositionEmbeddingLearned(
+            d_i=args.d_i,
+            d_h1=args.d_h1,
+            d_h2=args.d_h2, 
+            d_o=args.d_model
+        )
 
-        # self.n_q = args.n_q
+        self.n_q = args.n_q
 
         self.dec_layer = TransformerDecoderLayer(
             d_model=args.d_model,
@@ -547,43 +557,44 @@ class Transformer(nn.Module):
 
         'To facilitate the residual connections, the dimensions of all module outputs shall be the same.'
 
-    # def get_query_embeddings(self, xyz):
-    #     query_inds = furthest_point_sample(xyz, self.n_q)
-    #     query_inds = query_inds.long()
-    #     query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
-    #     query_xyz = torch.stack(query_xyz)
-    #     query_xyz = query_xyz.permute(1, 2, 0)
+    def get_query_embeddings(self, xyz):
+        query_inds = furthest_point_sample(xyz, self.n_q)
+        query_inds = query_inds.long()
+        query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
+        query_xyz = torch.stack(query_xyz)
+        query_xyz = query_xyz.permute(1, 2, 0)
 
-    #     # Gater op above can be replaced by the three lines below from the pointnet2 codebase
-    #     # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
-    #     # query_xyz = gather_operation(xyz_flipped, query_inds.int())
-    #     # query_xyz = query_xyz.transpose(1, 2)
-    #     query_pos = self.dec_pos_embedding(query_xyz)
-    #     query_embed = self.query_prj(query_pos)
-    #     return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
+        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
+        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
+        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
+        # query_xyz = query_xyz.transpose(1, 2)
+        query_pos = self.dec_pos_embedding(query_xyz)
+        query_embed = self.query_prj(query_pos)
+        return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
 
 
     def forward(self, xyz, encoder_only=False):
-        src_pos = self.enc_pos_embedding(xyz)                                               # (B, C, N)
-        src_pos = src_pos.permute(2, 0, 1)
+        src_pos = None
+        # src_pos = self.enc_pos_embedding(xyz)                                               # (B, C, N)
+        # src_pos = src_pos.permute(2, 0, 1)
 
         pre_enc_features = self.enc_embedding(xyz)                                          # (B, C, N)
         # nn.MultiHeadAttention in encoder expects features of size (N, B, C)
         pre_enc_features = pre_enc_features.permute(2, 0, 1)
 
         enc_features = self.encoder(pre_enc_features, src_pos=src_pos)[0]                   # (N, B, C)
-        enc_features = enc_features.permute(1, 2, 0)                                        # (B, C, N)     
-        enc_features = self.enc2dec_prj(enc_features)                                       # (B, C, N)
-        enc_features = enc_features.permute(2, 0, 1)                                        # (N, B, C) 
+        # enc_features = enc_features.permute(1, 2, 0)                                        # (B, C, N)     
+        # enc_features = self.enc2dec_prj(enc_features)                                       # (B, C, N)
+        # enc_features = enc_features.permute(2, 0, 1)                                        # (N, B, C) 
 
         if encoder_only:
             return enc_features.permute(1, 0, 2)                                            # (B, N, C)
 
+        # trg, trg_pos = self.get_query_embeddings(xyz)
+
         trg_pos = self.query_embed.weight                                                   # (n_q, C)
         trg_pos = trg_pos.unsqueeze(1).repeat(1, xyz.shape[0], 1)                           # (n_q, B, C)                                
         trg = torch.zeros_like(trg_pos)
-        
-        # trg, trg_pos = self.get_query_embeddings(xyz)                                       # (n_q, B, C)
 
         # nn.MultiHeadAttention in decoder expects features of size (N, B, C)
         dec_features = self.decoder(trg, enc_features, src_pos=src_pos, trg_pos=trg_pos)[0]         # (n_q, B, C)
