@@ -56,21 +56,22 @@ class Local_op(nn.Module):
         self.bn1 = nn.BatchNorm1d(d_o)
         self.conv2 = nn.Conv1d(d_o, d_o, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm1d(d_o)
+        self.activation = nn.ReLU(inplace=True)
 
     def forward(self, x):
         '''
         x: (B, N, n_sample, d_i)
         return: (B, d_o, N)
         '''
-        b, n, s, d = x.size()                                           
+        B, N, S, D = x.size()                                           
         x1 = x.permute(0, 1, 3, 2)                                          # x1: (B, N, d_i, n_sample)
-        x2 = x1.reshape(-1, d, s)                                           # x2: (B*N, d_i, n_sample)
-        BN, _, N = x2.size()
-        x3 = F.relu(self.bn1(self.conv1(x2)))                               # x3: (B*N, d_o, n_sample)
-        x4 = F.relu(self.bn2(self.conv2(x3)))                               # x4: (B*N, d_o, n_sample)
+        x2 = x1.reshape(-1, D, S)                                           # x2: (B*N, d_i, n_sample)
+        BN, _, _ = x2.size()
+        x3 = self.activation(self.bn1(self.conv1(x2)))                      # x3: (B*N, d_o, n_sample)
+        x4 = self.activation(self.bn2(self.conv2(x3)))                      # x4: (B*N, d_o, n_sample)
         
         x5 = F.adaptive_max_pool1d(x4, 1).view(BN, -1)                      # x5: (B*N, d_o)
-        x6 = x5.reshape(b, n, -1).permute(0, 2, 1)                          # x6: (B, d_o, N)
+        x6 = x5.reshape(B, N, -1).permute(0, 2, 1)                          # x6: (B, d_o, N)
 
         return x6
 
@@ -82,6 +83,7 @@ class PctEmbedding(nn.Module):
         self.bn1 = nn.BatchNorm1d(d_h1)
         self.conv2 = nn.Conv1d(d_h1, d_h2, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm1d(d_h2)
+        self.activation = nn.ReLU(inplace=True)
         self.gather_local_0 = Local_op(d_h3, d_h3)
         self.gather_local_1 = Local_op(d_o, d_o)
         self.n_sample = n_sample
@@ -89,8 +91,8 @@ class PctEmbedding(nn.Module):
     def forward(self, xyz):
         output = xyz                                                        # (B, N, d_i)    
         output = output.permute(0, 2, 1)                                    # (B, d_i, N)
-        output = F.relu(self.bn1(self.conv1(output)))                       # (B, d_h1, N)
-        output = F.relu(self.bn2(self.conv2(output)))                       # (B, d_h2, N)
+        output = self.activation(self.bn1(self.conv1(output)))              # (B, d_h1, N)
+        output = self.activation(self.bn2(self.conv2(output)))              # (B, d_h2, N)
         output = output.permute(0, 2, 1)                                    # (B, N, d_h2)
 
         output = group(n_sample=self.n_sample, xyz=xyz, feature=output)       # (B, N, n_sample, 2*d_h2)
