@@ -30,11 +30,12 @@ class BaseOptionParser():
         self.parser.add_argument('-no_tb', action='store_true', help='do not use tensorboard')
         self.parser.add_argument('-output_path', type=str, default='./experiments/', help='path to save model and log')
         self.parser.add_argument('-exp_name', type=str, default='1_d1024', help='the experiment name to create path')
-        self.parser.add_argument('-interval', type=int, default=5, help='epoch interval to save and validation')
+        self.parser.add_argument('-interval', type=int, default=10, help='epoch interval to save and validation')
         self.parser.add_argument('-resume', action='store_true', help='train from a speicfic epoch')
         self.parser.add_argument('-start_epoch', type=int, default=-1, help='start epoch of resume training')
         self.parser.add_argument('-total_epoch', type=int, default=200)
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
+        self.parser.add_argument('-rate', type=float, default=0.2)
 
         # optimizer
         self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='cosine')
@@ -44,8 +45,7 @@ class BaseOptionParser():
         self.parser.add_argument('-lr_mul', type=float, default=0.1)
         
         # test
-        self.parser.add_argument('-vis_path', type=str, default='./visualization/', 
-                                help='path to save visualization result')
+        self.parser.add_argument('-vis_path', type=str, default='./visualization/', help='path to save visualization result')
 
         # device and distributed
         self.parser.add_argument('-local_rank', type=int, default=-1, help='local rank for parallel')

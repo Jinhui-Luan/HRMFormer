@@ -95,11 +95,11 @@ class PctEmbedding(nn.Module):
         output = self.activation(self.bn2(self.conv2(output)))              # (B, d_h2, N)
         output = output.permute(0, 2, 1)                                    # (B, N, d_h2)
 
-        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)       # (B, N, n_sample, 2*d_h2)
+        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)     # (B, N, n_sample, 2*d_h2)
         output = self.gather_local_0(output)                                # (B, d_h3, N)
         output = output.permute(0, 2, 1)                                    # (B, N, d_h3)
 
-        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)       # (B, N, n_sample, 2*d_h3)
+        output = group(n_sample=self.n_sample, xyz=xyz, feature=output)     # (B, N, n_sample, 2*d_h3)
         output = self.gather_local_1(output)                                # (B, d_o, N)
 
         return output

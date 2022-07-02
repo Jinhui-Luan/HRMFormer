@@ -5,6 +5,7 @@ import random
 from tqdm import tqdm
 import IPython
 from math import cos, pi
+from plyfile import PlyData, PlyElement
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -197,7 +198,33 @@ def load_checkpoint(model, args, device, start_epoch, scheduler=None):
         scheduler.epoch = epoch
         
     return epoch
-    
+
+
+def cal_data_loss(x1, x2, rate, criterion):
+    '''
+    x1 & x1: pose parameters theta of SMPL model with shape of [B, J, 3]
+    rate: the rate of the weight between parent and child nodes
+    criterion: the criterion for calculating loss
+    return: the data term of loss
+    '''
+
+    root = [0]
+    child1 = [1, 2, 3, 6, 9]
+    child2 = [4, 5, 12, 13, 14, 16, 17]
+    child3 = [7, 8, 15, 18, 19]
+    child4 = [10, 11, 20, 21, 22, 23]
+
+    loss = 0
+    for i, part in enumerate([root, child1, child2, child3, child4]):
+        # print(i, part, rate ** i)
+        for idx in part:
+            # print(idx)
+            l = criterion(x1[:, idx, :], x2[:, idx, :]) * rate ** i
+            # IPython.embed()
+            loss += l
+        
+    return loss / 24
+
 
 def train(model, dataloader_train, dataloader_val, scheduler, device, args):
     criterion = nn.MSELoss().to(device)
@@ -236,14 +263,14 @@ def train(model, dataloader_train, dataloader_val, scheduler, device, args):
 
         # train epoch
         start = time.time()
+        lr = scheduler.optimizer.param_groups[0]['lr']
         train_l, train_ld, train_lj, train_lv, train_mpjpe, train_mpvpe = train_epoch(
             model, smpl_model, dataloader_train, scheduler, criterion, device, args)
-        lr = scheduler.optimizer.param_groups[0]['lr']
         print_performances('Training', train_l, train_mpjpe, train_mpvpe, lr, start)
 
         # validation epoch
         start = time.time()
-        val_l, val_ld, val_lj, val_lv, val_mpjpe, val_mpvpe = val_epoch(model, smpl_model, dataloader_val, criterion, device)
+        val_l, val_ld, val_lj, val_lv, val_mpjpe, val_mpvpe = val_epoch(model, smpl_model, dataloader_val, criterion, device, args)
         print_performances('Validation', val_l, val_mpjpe, val_mpvpe, lr, start)
 
         val_metric = 0.5 * val_mpjpe + 0.5 * val_mpvpe
@@ -304,7 +331,11 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         joint = smpl_model.joints
         vertex = smpl_model.verts
 
-        l_data = criterion(theta_pred, theta)
+        # l_data = criterion(theta_pred, theta)
+        l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
+
+        # IPython.embed()
+
         l_joint = criterion(joint_pred, joint)
         l_vertex = criterion(vertex_pred, vertex)
         l = l_data + l_joint + l_vertex
@@ -329,7 +360,7 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
 
-def val_epoch(model, smpl_model, dataloader_val, criterion, device):
+def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
     model.eval()
     loss = []
     loss_data = []
@@ -355,7 +386,8 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device):
             joint = smpl_model.joints
             vertex = smpl_model.verts
 
-            l_data = criterion(theta_pred, theta)
+            # l_data = criterion(theta_pred, theta)
+            l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
             l_joint = criterion(joint_pred, joint)
             l_vertex = criterion(vertex_pred, vertex)
             l = l_data + l_joint + l_vertex
@@ -374,6 +406,27 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device):
         torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
     
 
+def write_ply(save_path, vertex, rgb=None, face=None):
+    """
+    Paramerer:
+    ---------
+    save_path : path to save
+    vertex: point cloud with size of (n_points, 3)
+    rgb: RGB information of each point with size of (n_point, 3)
+    """
+    point = np.hstack((vertex, rgb))
+
+    # convert to list
+    point = [(point[i,0], point[i,1], point[i,2], point[i,3], point[i,4], point[i,5]) \
+        for i in range(point.shape[0])]
+
+    point = np.array(point, dtype=[('x', 'float32'), ('y', 'float32'), ('z', 'float32'), \
+        ('red', 'uint8'), ('green', 'uint8'), ('blue', 'uint8')])
+    point = PlyElement.describe(point, 'vertex')
+
+    PlyData([point]).write(save_path)
+
+
 def test(model, dataloader_test, device, args):
     criterion = nn.MSELoss().to(device)
     smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
@@ -386,6 +439,7 @@ def test(model, dataloader_test, device, args):
     loss_vertex = []
     MPJPE = []
     MPVPE = []
+    batch = 0
 
     desc = ' -       (Test) '
     with torch.no_grad():
@@ -404,7 +458,8 @@ def test(model, dataloader_test, device, args):
             joint = smpl_model.joints
             vertex = smpl_model.verts
 
-            l_data = criterion(theta_pred, theta)
+            # l_data = criterion(theta_pred, theta)
+            l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
             l_joint = criterion(joint_pred, joint)
             l_vertex = criterion(vertex_pred, vertex)
             l = l_data + l_joint + l_vertex
@@ -418,6 +473,26 @@ def test(model, dataloader_test, device, args):
             loss_vertex.append(l_vertex)
             MPJPE.append(mpjpe.clone().detach())
             MPVPE.append(mpvpe.clone().detach())
+
+            for i in range(marker.shape[0]):
+                # generate rgb color 
+                rgb_vertex = np.repeat(np.array([[123, 123, 123]]), vertex.shape[1], axis=0)    # show vertex in gray
+                rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red
+                rgb_joint = np.repeat(np.array([[0, 255, 0]]), joint.shape[1], axis=0)          # show joint in green
+
+                # concatenate the points of mesh and markers
+                v = vertex[i].to('cpu')
+                m = marker[i].to('cpu')
+                j = joint[i].to('cpu')
+                point = np.vstack((v, m, j))
+                rgb = np.vstack((rgb_vertex, rgb_marker, rgb_joint))
+
+                os.makedirs(args.vis_path, exist_ok=True)
+                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '.ply'), point, rgb)
+
+            batch += 1
+
+
 
     return torch.Tensor(loss).mean(), torch.Tensor(loss_data).mean(), torch.Tensor(loss_joint).mean(), \
         torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
@@ -476,11 +551,13 @@ def main():
         train(model, dl_train, dl_val, scheduler, device, args)
 
     elif args.mode == 'test':
-        model_path = os.path.join(args.model_save_path, 'model_best.chkpt')
+        model_path = os.path.join(args.output_path, args.exp_name, 'models', 'model_best.chkpt')
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', 20)
-        loss, mpjpe, mpvpe = test(model, dl_test, device, args)
+        print('Successfully load checkpoint of model!')
+        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', 100)
+        loss, loss_data, loss_joint, loss_vertex, mpjpe, mpvpe = test(model, dl_test, device, args)
+        print(' - loss: {:6.4f}, mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(loss, mpjpe, mpvpe))
 
 
 if __name__ == '__main__':
