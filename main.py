@@ -162,6 +162,9 @@ def get_data_loader(basic_path, batch_size, mode, interval):
     theta = torch.Tensor(data['theta'])[::interval].to(torch.float32)         # (f, j, 3)
     beta = torch.Tensor(data['beta'])[::interval].to(torch.float32)           # (f, 10)
 
+    for i in range(marker.shape[0]):
+        marker[i, :, :] = marker[i, torch.randperm(marker.shape[1]), :]
+
     print('Dataset shape: marker with size of {}, theta with size of {}.'.format(
             marker.shape, theta.shape))
 
