@@ -208,14 +208,13 @@ def cal_data_loss(x1, x2, rate, criterion):
     return: the data term of loss
     '''
 
-    root = [0]
-    child1 = [1, 2, 3, 6, 9]
-    child2 = [4, 5, 12, 13, 14, 16, 17]
-    child3 = [7, 8, 15, 18, 19]
-    child4 = [10, 11, 20, 21, 22, 23]
+    root = [0, 3, 6, 9]
+    child1 = [1, 2, 12, 13, 14, 16, 17]
+    child2 = [4, 5, 15, 18, 19]
+    child3 = [7, 8, 10, 11, 20, 21, 22, 23]
 
     loss = 0
-    for i, part in enumerate([root, child1, child2, child3, child4]):
+    for i, part in enumerate([root, child1, child2, child3]):
         # print(i, part, rate ** i)
         for idx in part:
             # print(idx)
@@ -223,7 +222,7 @@ def cal_data_loss(x1, x2, rate, criterion):
             # IPython.embed()
             loss += l
         
-    return loss / 24
+    return loss
 
 
 def train(model, dataloader_train, dataloader_val, scheduler, device, args):
