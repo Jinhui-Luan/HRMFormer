@@ -5,8 +5,7 @@ class BaseOptionParser():
         self.parser = argparse.ArgumentParser()
 
         # data
-        self.parser.add_argument('--basic_path', type=str, default='/home/ljh20/file/data/surreal/',
-                                 help='the path of surreal dataset')
+        self.parser.add_argument('--basic_path', type=str, default='/home/ljh20/file/data/surreal/', help='the path of surreal dataset')
 
         # network
         self.parser.add_argument('-d_i', type=int, default=3, help='the dimision of input')
