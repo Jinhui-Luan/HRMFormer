@@ -156,7 +156,7 @@ def attach_placeholder(X):
 
 def get_data_loader(basic_path, batch_size, mode, m, interval):
     data = np.load(os.path.join(basic_path, 'dataset-amass', mode + '_' + str(m) + '.npy'), allow_pickle=True).item()
-    print('Successfully load data from ' + mode +  '.npy!')
+    print('Successfully load data from ' + mode + '_' + str(m) + '.npy!')
 
     marker = torch.Tensor(data['marker'])[::interval].to(torch.float32)       # (f, m, 3)
     theta = torch.Tensor(data['theta'])[::interval].to(torch.float32)         # (f, j, 3)
