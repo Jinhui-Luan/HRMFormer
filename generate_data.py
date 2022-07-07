@@ -375,7 +375,7 @@ def generate_data():
         for i in range(len(data_path)):
             subject = data_path[i].split('/')[-2]
             seq = data_path[i].split('/')[-1].rsplit('_')[-2]
-            print('Processing the data for sequence {} of subject {}...'.format(seq, subject))
+            print('Processing the data for sequence {} of subject {} in {} set...'.format(seq, subject, name))
 
             database = scio.loadmat(data_path[i])
             beta = np.array(database['shape'].T)                            # shape parameters with size of (f, 10)
@@ -404,8 +404,8 @@ def generate_data():
                 for mrk_id, vid in enumerate(chosen_marker_set.values()):
                     marker[fIdx, mrk_id, :] = torch.Tensor(vertex[vid]) + torch.Tensor(cur_m2b_distance) * vn[vid]
                 
-            print('Successfully generate marker for the No.{} file of total {} files, and the number of frames in it is {}!'.format(
-                i+1, len(data_path), f))    
+            print('Successfully generate marker for the No.{} file of total {} files in {} set!'.format(
+                i+1, len(data_path), name))    
 
             marker = marker.astype(np.float32)  
             marker = marker.reshape(f, -1)                                      # (f, m*3)
@@ -436,66 +436,8 @@ def generate_data():
         dataset['gender'] = gender
         dataset['joint'] = joint
 
-        np.save(os.path.join(args.basic_path, name + '_' + str(m) + '.npy'), dataset)
+        np.save(os.path.join(args.basic_path, 'dataset-amass', name + '_' + str(m) + '.npy'), dataset)
         print('Successfully save {} data, and the total number of frames is {}!'.format(name, marker.shape[0]))
-
-
-def save2file():
-    parser = BaseOptionParser()
-    args = parser.parse_args()
-    
-
-    for name in ['train', 'val', 'test']:
-        paths = glob.glob(os.path.join(args.basic_path, 'dataset-amass', name, '*', '*.npz'))
-        paths.sort()
-        # print(len(paths))
-        markers = []
-        thetas = []
-        betas = []
-        genders = []
-        joints = []
-        dataset = {}
-        
-        for i in range(len(paths)):
-            print('Loading {}th file of total {} files...'.format(i+1, len(paths)))
-            data = np.load(paths[i])
-            if i == 0:
-                label = data['label']
-            marker = data['marker']                                                         # (n_frame, n_marker, 3)  
-            marker = marker.astype(np.float32)  
-            marker = marker.reshape(marker.shape[0], -1)                                    # (n_frame, n_marker*3)
-            theta = data['theta']                                                           # (n_frame, 72)  
-            beta = data['beta']                                                             # (n_frame, 10)
-            gender = data['gender']                                                         # 0: 'female', 1: 'male'
-            gender = np.repeat(gender, marker.shape[0])[:, None]                            # (n_frame, 1)
-            joint = data['joint']                                                           # (n_frame, 24, 3)
-            joint = joint.reshape(joint.shape[0], -1)                                       # (n_frame, 24*3)
-
-            markers.append(marker)
-            thetas.append(theta)
-            betas.append(beta)
-            genders.append(gender)
-            joints.append(joint)
-        print('Successfully load {} data!'.format(name))
-        
-        marker = np.vstack(markers)                                                         # (n_frame, n_marker*3)
-        marker = marker.reshape(-1, 87, 3)                                                  # (n_frame, n_marker, 3)
-        theta = np.vstack(thetas)                                                           # (n_frame, 72)
-        theta = theta.reshape(-1, 24, 3)                                                    # (n_frame, 24, 3)
-        beta = np.vstack(betas)                                                             # (n_frame, 10)
-        gender = np.vstack(genders)                                                         # (n_frame, 1)
-        joint = np.vstack(joints)                                                           # (n_frame, 24*3)
-        joint = joint.reshape(-1, 24, 3)                                                    # (n_frame, 24, 3)
-
-        dataset['label'] = label
-        dataset['marker'] = marker
-        dataset['theta'] = theta
-        dataset['beta'] = beta
-        dataset['gender'] = gender
-        dataset['joint'] = joint
-
-        np.save(os.path.join(args.basic_path, name + '.npy'), dataset)
-        print('Successfully save {} data of markers and poses!'.format(name))
 
 
 if __name__ == '__main__':
