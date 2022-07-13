@@ -225,7 +225,7 @@ def cal_data_loss(x1, x2, rate, criterion):
             # IPython.embed()
             loss += l
         
-    return loss
+    return loss / x1.shape[1]
 
 
 def train(model, dataloader_train, dataloader_val, scheduler, device, args):
@@ -333,6 +333,9 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         joint = smpl_model.joints
         vertex = smpl_model.verts
 
+        mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
+        mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
+
         # l_data = criterion(theta_pred, theta)
         l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
 
@@ -340,13 +343,12 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
 
         l_joint = criterion(joint_pred, joint)
         l_vertex = criterion(vertex_pred, vertex)
-        l = l_data + l_joint + l_vertex
+        # l_joint = mpjpe
+        # l_vertex = mpvpe
+        l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
         l.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         scheduler.batch_step()
-
-        mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
-        mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
         
         loss.append(l)
         loss_data.append(l_data)
@@ -388,15 +390,17 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
             joint = smpl_model.joints
             vertex = smpl_model.verts
 
+            mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
+            mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
+
             # l_data = criterion(theta_pred, theta)
             l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
             l_joint = criterion(joint_pred, joint)
             l_vertex = criterion(vertex_pred, vertex)
-            l = l_data + l_joint + l_vertex
+            # l_joint = mpjpe
+            # l_vertex = mpvpe
+            l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
             
-            mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
-            mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
-
             loss.append(l)
             loss_data.append(l_data)
             loss_joint.append(l_joint)
@@ -460,14 +464,14 @@ def test(model, dataloader_test, device, args):
             joint = smpl_model.joints
             vertex = smpl_model.verts
 
+            mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
+            mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
+
             # l_data = criterion(theta_pred, theta)
             l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
             l_joint = criterion(joint_pred, joint)
             l_vertex = criterion(vertex_pred, vertex)
-            l = l_data + l_joint + l_vertex
-            
-            mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
-            mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
+            l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
 
             loss.append(l)
             loss_data.append(l_data)
@@ -477,20 +481,26 @@ def test(model, dataloader_test, device, args):
             MPVPE.append(mpvpe.clone().detach())
 
             for i in range(marker.shape[0]):
-                # generate rgb color 
-                rgb_vertex = np.repeat(np.array([[123, 123, 123]]), vertex.shape[1], axis=0)    # show vertex in gray
-                rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red
+                # generate rgb color
+                rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red 
                 rgb_joint = np.repeat(np.array([[0, 255, 0]]), joint.shape[1], axis=0)          # show joint in green
+                rgb_vertex = np.repeat(np.array([[123, 123, 123]]), vertex.shape[1], axis=0)    # show vertex in gray             
 
                 # concatenate the points of mesh and markers
-                v = vertex[i].to('cpu')
                 m = marker[i].to('cpu')
                 j = joint[i].to('cpu')
-                point = np.vstack((v, m, j))
-                rgb = np.vstack((rgb_vertex, rgb_marker, rgb_joint))
+                j_pred = joint_pred[i].to('cpu')
+                v = vertex[i].to('cpu')
+                v_pred = vertex_pred[i].to('cpu')
+                
+                point = np.vstack((j, v))
+                point_pred = np.vstack((j_pred, v_pred))
+                rgb = np.vstack((rgb_joint, rgb_vertex))
 
                 os.makedirs(args.vis_path, exist_ok=True)
-                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '.ply'), point, rgb)
+                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_m.ply'), m, rgb_marker)
+                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_gt.ply'), point, rgb)
+                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_pred.ply'), point_pred, rgb)  
 
             batch += 1
 
@@ -537,7 +547,7 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 10)
+        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 20)
         dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', args.m, 1)
 
         # create optimizer and scheduler
@@ -557,7 +567,7 @@ def main():
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
         print('Successfully load checkpoint of model!')
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 100)
+        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 1000)
         loss, loss_data, loss_joint, loss_vertex, mpjpe, mpvpe = test(model, dl_test, device, args)
         print(' - loss: {:6.4f}, mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(loss, mpjpe, mpvpe))
 
