@@ -337,15 +337,17 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
         # l_data = criterion(theta_pred, theta)
-        l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
+        l_data = args.lambda1 * cal_data_loss(theta_pred, theta, args.rate, criterion)
 
         # IPython.embed()
 
-        l_joint = criterion(joint_pred, joint)
-        l_vertex = criterion(vertex_pred, vertex)
-        # l_joint = mpjpe
-        # l_vertex = mpvpe
-        l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
+        # l_joint = args.lambda2 * criterion(joint_pred, joint)
+        # l_vertex = args.lambda3 * criterion(vertex_pred, vertex)
+        # l_joint = args.lambda2 * mpjpe
+        # l_vertex = args.lambda3 * mpvpe
+        l_joint = args.lambda2 * abs((joint_pred - joint)).sum(dim=-1).mean()
+        l_vertex = args.lambda3 * abs((vertex_pred - vertex)).sum(dim=-1).mean()
+        l = l_data + l_joint + l_vertex
         l.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         scheduler.batch_step()
@@ -394,12 +396,15 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
             # l_data = criterion(theta_pred, theta)
-            l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
-            l_joint = criterion(joint_pred, joint)
-            l_vertex = criterion(vertex_pred, vertex)
-            # l_joint = mpjpe
-            # l_vertex = mpvpe
-            l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
+            l_data = args.lambda1 * cal_data_loss(theta_pred, theta, args.rate, criterion)
+            # l_joint = args.lambda2 * criterion(joint_pred, joint)
+            # l_vertex = args.lambda3 * criterion(vertex_pred, vertex)
+            # l_joint = args.lambda2 * mpjpe
+            # l_vertex = args.lambda3 * mpvpe
+            l_joint = args.lambda2 * abs((joint_pred - joint)).sum(dim=-1).mean()
+            l_vertex = args.lambda3 * abs((vertex_pred - vertex)).sum(dim=-1).mean()
+            
+            l = l_data + l_joint + l_vertex
             
             loss.append(l)
             loss_data.append(l_data)

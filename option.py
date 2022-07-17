@@ -37,8 +37,8 @@ class BaseOptionParser():
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
         self.parser.add_argument('-rate', type=float, default=0.2)
         self.parser.add_argument('-lambda1', type=float, default=1.0, help='weight of l_d in loss function')
-        self.parser.add_argument('-lambda2', type=float, default=20.0, help='weight of l_j in loss function')
-        self.parser.add_argument('-lambda3', type=float, default=20.0, help='weight of l_v in loss function')
+        self.parser.add_argument('-lambda2', type=float, default=1.0, help='weight of l_j in loss function')
+        self.parser.add_argument('-lambda3', type=float, default=1.0, help='weight of l_v in loss function')
 
         # optimizer
         self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='cosine')
