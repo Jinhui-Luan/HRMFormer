@@ -37,8 +37,8 @@ class BaseOptionParser():
         self.parser.add_argument('-grad_clip', type=float, default=1.0, help='gradient clip')
         self.parser.add_argument('-rate', type=float, default=0.2)
         self.parser.add_argument('-lambda1', type=float, default=1.0, help='weight of l_d in loss function')
-        self.parser.add_argument('-lambda2', type=float, default=1.0, help='weight of l_j in loss function')
-        self.parser.add_argument('-lambda3', type=float, default=1.0, help='weight of l_v in loss function')
+        self.parser.add_argument('-lambda2', type=float, default=5.0, help='weight of l_j in loss function')
+        self.parser.add_argument('-lambda3', type=float, default=5.0, help='weight of l_v in loss function')
 
         # optimizer
         self.parser.add_argument('-optim', type=str, choices=['warmup', 'cosine', 'step'], default='cosine')
@@ -48,6 +48,7 @@ class BaseOptionParser():
         self.parser.add_argument('-lr_mul', type=float, default=0.1)
         
         # test
+        self.parser.add_argument('-visualize', action='store_true', help='visualize the results or not')
         self.parser.add_argument('-vis_path', type=str, default='./visualization/', help='path to save visualization result')
 
         # device and distributed

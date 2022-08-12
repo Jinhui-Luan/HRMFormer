@@ -336,15 +336,11 @@ def train_epoch(model, smpl_model, dataloader_train, scheduler, criterion, devic
         mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
         mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
-        # l_data = criterion(theta_pred, theta)
+        # l_data = args.lambda1 * criterion(theta_pred, theta)
         l_data = args.lambda1 * cal_data_loss(theta_pred, theta, args.rate, criterion)
-
+        # l_data = 0
         # IPython.embed()
 
-        # l_joint = args.lambda2 * criterion(joint_pred, joint)
-        # l_vertex = args.lambda3 * criterion(vertex_pred, vertex)
-        # l_joint = args.lambda2 * mpjpe
-        # l_vertex = args.lambda3 * mpvpe
         l_joint = args.lambda2 * abs((joint_pred - joint)).sum(dim=-1).mean()
         l_vertex = args.lambda3 * abs((vertex_pred - vertex)).sum(dim=-1).mean()
         l = l_data + l_joint + l_vertex
@@ -395,12 +391,10 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
             mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
-            # l_data = criterion(theta_pred, theta)
+            # l_data = args.lambda1 * criterion(theta_pred, theta)
             l_data = args.lambda1 * cal_data_loss(theta_pred, theta, args.rate, criterion)
-            # l_joint = args.lambda2 * criterion(joint_pred, joint)
-            # l_vertex = args.lambda3 * criterion(vertex_pred, vertex)
-            # l_joint = args.lambda2 * mpjpe
-            # l_vertex = args.lambda3 * mpvpe
+            # l_data = 0
+
             l_joint = args.lambda2 * abs((joint_pred - joint)).sum(dim=-1).mean()
             l_vertex = args.lambda3 * abs((vertex_pred - vertex)).sum(dim=-1).mean()
             
@@ -439,15 +433,16 @@ def write_ply(save_path, vertex, rgb=None, face=None):
 
 
 def test(model, dataloader_test, device, args):
-    criterion = nn.MSELoss().to(device)
+    # criterion = nn.MSELoss().to(device)
     smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
     smpl_model = SMPLModel_torch(smpl_model_path, device) 
+    face = smpl_model.faces
 
     model.eval()
-    loss = []
-    loss_data = []
-    loss_joint = []
-    loss_vertex = []
+    # loss = []
+    # loss_data = []
+    # loss_joint = []
+    # loss_vertex = []
     MPJPE = []
     MPVPE = []
     batch = 0
@@ -473,46 +468,47 @@ def test(model, dataloader_test, device, args):
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
 
             # l_data = criterion(theta_pred, theta)
-            l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
-            l_joint = criterion(joint_pred, joint)
-            l_vertex = criterion(vertex_pred, vertex)
-            l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
+            # l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
+            # l_joint = criterion(joint_pred, joint)
+            # l_vertex = criterion(vertex_pred, vertex)
+            # l = args.lambda1 * l_data + args.lambda2 * l_joint +  args.lambda3 * l_vertex
 
-            loss.append(l)
-            loss_data.append(l_data)
-            loss_joint.append(l_joint)
-            loss_vertex.append(l_vertex)
+            # loss.append(l)
+            # loss_data.append(l_data)
+            # loss_joint.append(l_joint)
+            # loss_vertex.append(l_vertex)
             MPJPE.append(mpjpe.clone().detach())
             MPVPE.append(mpvpe.clone().detach())
 
-            for i in range(marker.shape[0]):
-                # generate rgb color
-                rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red 
-                rgb_joint = np.repeat(np.array([[0, 255, 0]]), joint.shape[1], axis=0)          # show joint in green
-                rgb_vertex = np.repeat(np.array([[123, 123, 123]]), vertex.shape[1], axis=0)    # show vertex in gray             
+            if args.visualize:
 
-                # concatenate the points of mesh and markers
-                m = marker[i].to('cpu')
-                j = joint[i].to('cpu')
-                j_pred = joint_pred[i].to('cpu')
-                v = vertex[i].to('cpu')
-                v_pred = vertex_pred[i].to('cpu')
-                
-                point = np.vstack((j, v))
-                point_pred = np.vstack((j_pred, v_pred))
-                rgb = np.vstack((rgb_joint, rgb_vertex))
+                for i in range(marker.shape[0]):
+                    # generate rgb color
+                    rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red 
+                    rgb_joint = np.repeat(np.array([[0, 255, 0]]), joint.shape[1], axis=0)          # show joint in green
+                    rgb_vertex = np.repeat(np.array([[123, 123, 123]]), vertex.shape[1], axis=0)    # show vertex in gray             
 
-                os.makedirs(args.vis_path, exist_ok=True)
-                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_m.ply'), m, rgb_marker)
-                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_gt.ply'), point, rgb)
-                write_ply(os.path.join(args.vis_path, str(batch) + '_' + str(i) + '_pred.ply'), point_pred, rgb)  
+                    # concatenate the points of mesh and markers
+                    m = marker[i].to('cpu')
+                    j = joint[i].to('cpu')
+                    j_pred = joint_pred[i].to('cpu')
+                    v = vertex[i].to('cpu')
+                    v_pred = vertex_pred[i].to('cpu')
+                    
+                    point = np.vstack((j, v))
+                    point_pred = np.vstack((j_pred, v_pred))
+                    rgb = np.vstack((rgb_joint, rgb_vertex))
 
-            batch += 1
+                    os.makedirs(args.vis_path, exist_ok=True)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_marker.ply'), m, rgb_marker)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_gt.ply'), point, rgb)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_pred.ply'), point_pred, rgb)  
+
+                batch += 1
 
 
 
-    return torch.Tensor(loss).mean(), torch.Tensor(loss_data).mean(), torch.Tensor(loss_joint).mean(), \
-        torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
+    return torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
 
 
 def main():
@@ -572,9 +568,9 @@ def main():
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
         print('Successfully load checkpoint of model!')
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 1000)
-        loss, loss_data, loss_joint, loss_vertex, mpjpe, mpvpe = test(model, dl_test, device, args)
-        print(' - loss: {:6.4f}, mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(loss, mpjpe, mpvpe))
+        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 1)
+        mpjpe, mpvpe = test(model, dl_test, device, args)
+        print(' - mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(mpjpe, mpvpe))
 
 
 if __name__ == '__main__':
