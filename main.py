@@ -6,6 +6,7 @@ from tqdm import tqdm
 import IPython
 from math import cos, pi
 from plyfile import PlyData, PlyElement
+import pymesh
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -411,7 +412,7 @@ def val_epoch(model, smpl_model, dataloader_val, criterion, device, args):
         torch.Tensor(loss_vertex).mean(), torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
     
 
-def write_ply(save_path, vertex, rgb=None, face=None):
+def write_ply(save_path, vertex, rgb=None):
     """
     Paramerer:
     ---------
@@ -419,24 +420,41 @@ def write_ply(save_path, vertex, rgb=None, face=None):
     vertex: point cloud with size of (n_points, 3)
     rgb: RGB information of each point with size of (n_point, 3)
     """
-    point = np.hstack((vertex, rgb))
 
-    # convert to list
-    point = [(point[i,0], point[i,1], point[i,2], point[i,3], point[i,4], point[i,5]) \
-        for i in range(point.shape[0])]
+    vertex = [(vertex[i, 0], vertex[i, 1], vertex[i, 2]) for i in range(vertex.shape[0])]
+    vertex = PlyElement.describe(np.array(vertex, dtype=[('x', 'float32'), ('y', 'float32'), ('z', 'float32')]), 'vertex')
+    
+    PlyData([vertex]).write(save_path)   
 
-    point = np.array(point, dtype=[('x', 'float32'), ('y', 'float32'), ('z', 'float32'), \
-        ('red', 'uint8'), ('green', 'uint8'), ('blue', 'uint8')])
-    point = PlyElement.describe(point, 'vertex')
+def write_mesh(save_path, vertex, face, rgb=None):
+    """
+    This function generates a SMPL mesh with vertex
+    
+    Parameter:
+    ---------
+    basic_path: path of surreal dataset
+    mesh_path: the path to save mesh
 
-    PlyData([point]).write(save_path)
+    """
+    mesh_ref = pymesh.load_mesh("./template_color.ply")
 
+    face.dtype='int32'
+    mesh = pymesh.form_mesh(vertices=vertex, faces=face)
+    mesh.add_attribute("red")
+    mesh.add_attribute("green")
+    mesh.add_attribute("blue")
+    mesh.set_attribute("red", mesh_ref.get_attribute("vertex_red"))
+    mesh.set_attribute("green", mesh_ref.get_attribute("vertex_green"))
+    mesh.set_attribute("blue", mesh_ref.get_attribute("vertex_blue"))
+    pymesh.meshio.save_mesh(save_path, mesh, "red", "green", "blue", ascii=True)
 
 def test(model, dataloader_test, device, args):
     # criterion = nn.MSELoss().to(device)
     smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
     smpl_model = SMPLModel_torch(smpl_model_path, device) 
     face = smpl_model.faces
+    # print(face, face.shape)
+    # IPython.embed()
 
     model.eval()
     # loss = []
@@ -495,14 +513,16 @@ def test(model, dataloader_test, device, args):
                     v = vertex[i].to('cpu')
                     v_pred = vertex_pred[i].to('cpu')
                     
-                    point = np.vstack((j, v))
-                    point_pred = np.vstack((j_pred, v_pred))
-                    rgb = np.vstack((rgb_joint, rgb_vertex))
+                    # point = np.vstack((j, v))
+                    # point_pred = np.vstack((j_pred, v_pred))
+                    # rgb = np.vstack((rgb_joint, rgb_vertex))
 
-                    os.makedirs(args.vis_path, exist_ok=True)
-                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_marker.ply'), m, rgb_marker)
-                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_gt.ply'), point, rgb)
-                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_pred.ply'), point_pred, rgb)  
+                    os.makedirs(os.path.join(args.vis_path, args.exp_name), exist_ok=True)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_marker.ply'), m)
+                    write_mesh(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_mesh_gt.ply'), v, face)
+                    write_mesh(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_mesh.ply'), v_pred, face)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_joint_gt.ply'), j)
+                    write_ply(os.path.join(args.vis_path, args.exp_name, str(batch) + '_' + str(i) + '_joint.ply'), j_pred)
 
                 batch += 1
 
@@ -548,7 +568,7 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 20)
+        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 40)
         dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', args.m, 1)
 
         # create optimizer and scheduler
@@ -568,7 +588,7 @@ def main():
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
         print('Successfully load checkpoint of model!')
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 1)
+        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 10)
         mpjpe, mpvpe = test(model, dl_test, device, args)
         print(' - mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(mpjpe, mpvpe))
 
