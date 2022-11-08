@@ -23,30 +23,30 @@ from helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, ge
 import IPython
 
 
-class PositionEmbeddingLearned(nn.Module):
-    """
-    Absolute pos embedding, learned.
-    """
+# class PositionEmbeddingLearned(nn.Module):
+#     """
+#     Absolute pos embedding, learned.
+#     """
 
-    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_o=1024):
-        super().__init__()
-        self.position_embedding_head = nn.Sequential(
-            nn.Conv1d(d_i, d_h1, kernel_size=1),
-            nn.BatchNorm1d(d_h1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(d_h1, d_h2, kernel_size=1),
-            nn.BatchNorm1d(d_h2),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(d_h2, d_o, kernel_size=1)
-            )
+#     def __init__(self, d_i=3, d_h1=64, d_h2=256, d_o=1024):
+#         super().__init__()
+#         self.position_embedding_head = nn.Sequential(
+#             nn.Conv1d(d_i, d_h1, kernel_size=1),
+#             nn.BatchNorm1d(d_h1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv1d(d_h1, d_h2, kernel_size=1),
+#             nn.BatchNorm1d(d_h2),
+#             nn.ReLU(inplace=True),
+#             nn.Conv1d(d_h2, d_o, kernel_size=1)
+#             )
 
-    def forward(self, xyz):
-        if xyz is None:
-            position_embedding = None
-        else:
-            xyz = xyz.transpose(1, 2).contiguous()
-            position_embedding = self.position_embedding_head(xyz)
-        return position_embedding
+#     def forward(self, xyz):
+#         if xyz is None:
+#             position_embedding = None
+#         else:
+#             xyz = xyz.transpose(1, 2).contiguous()
+#             position_embedding = self.position_embedding_head(xyz)
+#         return position_embedding
 
 
 class Local_op(nn.Module):
@@ -475,12 +475,12 @@ class Transformer(nn.Module):
                 use_conv=True
             )
 
-        self.enc_pos_embedding = PositionEmbeddingLearned(
-            d_i=args.d_i,
-            d_h1=args.d_h1,
-            d_h2=args.d_h2, 
-            d_o=args.d_model
-        )
+        # self.enc_pos_embedding = PositionEmbeddingLearned(
+        #     d_i=args.d_i,
+        #     d_h1=args.d_h1,
+        #     d_h2=args.d_h2, 
+        #     d_o=args.d_model
+        # )
     
         self.enc_layer = TransformerEncoderLayer(
             d_model=args.d_model,
@@ -527,12 +527,12 @@ class Transformer(nn.Module):
             hidden_use_bias=True,
         )
 
-        self.dec_pos_embedding = PositionEmbeddingLearned(
-            d_i=args.d_i,
-            d_h1=args.d_h1,
-            d_h2=args.d_h2, 
-            d_o=args.d_model
-        )
+        # self.dec_pos_embedding = PositionEmbeddingLearned(
+        #     d_i=args.d_i,
+        #     d_h1=args.d_h1,
+        #     d_h2=args.d_h2, 
+        #     d_o=args.d_model
+        # )
 
         self.n_q = args.n_q
         self.pct_emb = args.pct_emb
