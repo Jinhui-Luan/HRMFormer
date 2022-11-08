@@ -568,7 +568,7 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 80)
+        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 20)
         dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', args.m, 1)
 
         # create optimizer and scheduler

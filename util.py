@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from pointnet2_ops import pointnet2_utils
+# from pointnet2_ops import pointnet2_utils
 import IPython
 
 
@@ -140,37 +140,37 @@ def knn_point(nsample, xyz, new_xyz):
     _, group_idx = torch.topk(sqrdists, nsample, dim = -1, largest=False, sorted=False)
     return group_idx
 
-def sample_and_group(npoint, radius, nsample, xyz, points):
-    """
-    Input:
-        npoint:
-        radius:
-        nsample:
-        xyz: input points position data, [B, N, 3]
-        points: input points data, [B, N, D]
-    Return:
-        new_xyz: sampled points position data, [B, npoint, 3]
-        new_points: sampled points data, [B, npoint, nsample, 3+D]
-    """
-    B, N, C = xyz.shape
-    S = npoint 
-    xyz = xyz.contiguous()
+# def sample_and_group(npoint, radius, nsample, xyz, points):
+#     """
+#     Input:
+#         npoint:
+#         radius:
+#         nsample:
+#         xyz: input points position data, [B, N, 3]
+#         points: input points data, [B, N, D]
+#     Return:
+#         new_xyz: sampled points position data, [B, npoint, 3]
+#         new_points: sampled points data, [B, npoint, nsample, 3+D]
+#     """
+#     B, N, C = xyz.shape
+#     S = npoint 
+#     xyz = xyz.contiguous()
 
-    fps_idx = pointnet2_utils.furthest_point_sample(xyz, npoint).long()     # fps_idx: (B, npoint)
-    new_xyz = index_points(xyz, fps_idx)                                    # new_xyz: (B, npoint, 3)
-    new_points = index_points(points, fps_idx)                              # new_points: (B, npoint, D)
-    # new_xyz = xyz[:]
-    # new_points = points[:]
+#     fps_idx = pointnet2_utils.furthest_point_sample(xyz, npoint).long()     # fps_idx: (B, npoint)
+#     new_xyz = index_points(xyz, fps_idx)                                    # new_xyz: (B, npoint, 3)
+#     new_points = index_points(points, fps_idx)                              # new_points: (B, npoint, D)
+#     # new_xyz = xyz[:]
+#     # new_points = points[:]
 
-    idx = knn_point(nsample, xyz, new_xyz)                                  # idx: (B, npoints, nsample)
-    # idx = query_ball_point(radius, nsample, xyz, new_xyz)
-    grouped_xyz = index_points(xyz, idx)                                    # grouped_xyz: (B, npoint, nsample, 3)
-    grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
-    grouped_points = index_points(points, idx)                              # grouped_points: (B, npoint, nsample, D)
-    grouped_points_norm = grouped_points - new_points.view(B, S, 1, -1)
-    new_points = torch.cat([grouped_points_norm, new_points.view(B, S, 1, -1).repeat(1, 1, nsample, 1)], dim=-1)
+#     idx = knn_point(nsample, xyz, new_xyz)                                  # idx: (B, npoints, nsample)
+#     # idx = query_ball_point(radius, nsample, xyz, new_xyz)
+#     grouped_xyz = index_points(xyz, idx)                                    # grouped_xyz: (B, npoint, nsample, 3)
+#     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
+#     grouped_points = index_points(points, idx)                              # grouped_points: (B, npoint, nsample, D)
+#     grouped_points_norm = grouped_points - new_points.view(B, S, 1, -1)
+#     new_points = torch.cat([grouped_points_norm, new_points.view(B, S, 1, -1).repeat(1, 1, nsample, 1)], dim=-1)
     
-    return new_xyz, new_points                                              # (B, npoint, D), (B, npoint, nsample, 2D)
+#     return new_xyz, new_points                                              # (B, npoint, D), (B, npoint, nsample, 2D)
 
 
 def group(n_sample, xyz, feature):
