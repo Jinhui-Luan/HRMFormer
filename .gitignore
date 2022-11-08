@@ -1,6 +1,7 @@
 .git/
 experiments/
 visualization/
+test/
 test.py
 main_limu.py
 main_ddp.py
