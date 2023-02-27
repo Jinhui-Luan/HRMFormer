@@ -436,7 +436,7 @@ def generate_data():
         dataset['gender'] = gender
         dataset['joint'] = joint
 
-        np.save(os.path.join(args.basic_path, 'dataset-amass', name + '_' + str(m) + '.npy'), dataset)
+        np.save(os.path.join(args.data_path, name + '_' + str(m) + '.npy'), dataset)
         print('Successfully save {} data, and the total number of frames is {}!'.format(name, marker.shape[0]))
 
 
