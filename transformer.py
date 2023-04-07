@@ -16,37 +16,37 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
-from pointnet2_ops.pointnet2_utils import furthest_point_sample
+# from pointnet2_ops.pointnet2_utils import furthest_point_sample
 from util import group
 from position_embedding import PositionEmbeddingCoordsSine
 from helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, get_clones
 import IPython
 
 
-class PositionEmbeddingLearned(nn.Module):
-    """
-    Absolute pos embedding, learned.
-    """
+# class PositionEmbeddingLearned(nn.Module):
+#     """
+#     Absolute pos embedding, learned.
+#     """
 
-    def __init__(self, d_i=3, d_h1=64, d_h2=256, d_o=1024):
-        super().__init__()
-        self.position_embedding_head = nn.Sequential(
-            nn.Conv1d(d_i, d_h1, kernel_size=1),
-            nn.BatchNorm1d(d_h1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(d_h1, d_h2, kernel_size=1),
-            nn.BatchNorm1d(d_h2),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(d_h2, d_o, kernel_size=1)
-            )
+#     def __init__(self, d_i=3, d_h1=64, d_h2=256, d_o=1024):
+#         super().__init__()
+#         self.position_embedding_head = nn.Sequential(
+#             nn.Conv1d(d_i, d_h1, kernel_size=1),
+#             nn.BatchNorm1d(d_h1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv1d(d_h1, d_h2, kernel_size=1),
+#             nn.BatchNorm1d(d_h2),
+#             nn.ReLU(inplace=True),
+#             nn.Conv1d(d_h2, d_o, kernel_size=1)
+#             )
 
-    def forward(self, xyz):
-        if xyz is None:
-            position_embedding = None
-        else:
-            xyz = xyz.transpose(1, 2).contiguous()
-            position_embedding = self.position_embedding_head(xyz)
-        return position_embedding
+#     def forward(self, xyz):
+#         if xyz is None:
+#             position_embedding = None
+#         else:
+#             xyz = xyz.transpose(1, 2).contiguous()
+#             position_embedding = self.position_embedding_head(xyz)
+#         return position_embedding
 
 
 class Local_op(nn.Module):
@@ -475,12 +475,12 @@ class Transformer(nn.Module):
                 use_conv=True
             )
 
-        self.enc_pos_embedding = PositionEmbeddingLearned(
-            d_i=args.d_i,
-            d_h1=args.d_h1,
-            d_h2=args.d_h2, 
-            d_o=args.d_model
-        )
+        # self.enc_pos_embedding = PositionEmbeddingLearned(
+        #     d_i=args.d_i,
+        #     d_h1=args.d_h1,
+        #     d_h2=args.d_h2, 
+        #     d_o=args.d_model
+        # )
     
         self.enc_layer = TransformerEncoderLayer(
             d_model=args.d_model,
@@ -527,12 +527,12 @@ class Transformer(nn.Module):
             hidden_use_bias=True,
         )
 
-        self.dec_pos_embedding = PositionEmbeddingLearned(
-            d_i=args.d_i,
-            d_h1=args.d_h1,
-            d_h2=args.d_h2, 
-            d_o=args.d_model
-        )
+        # self.dec_pos_embedding = PositionEmbeddingLearned(
+        #     d_i=args.d_i,
+        #     d_h1=args.d_h1,
+        #     d_h2=args.d_h2, 
+        #     d_o=args.d_model
+        # )
 
         self.n_q = args.n_q
         self.pct_emb = args.pct_emb
@@ -560,20 +560,20 @@ class Transformer(nn.Module):
 
         'To facilitate the residual connections, the dimensions of all module outputs shall be the same.'
 
-    def get_query_embeddings(self, xyz):
-        query_inds = furthest_point_sample(xyz, self.n_q)
-        query_inds = query_inds.long()
-        query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
-        query_xyz = torch.stack(query_xyz)
-        query_xyz = query_xyz.permute(1, 2, 0)
+    # def get_query_embeddings(self, xyz):
+    #     query_inds = furthest_point_sample(xyz, self.n_q)
+    #     query_inds = query_inds.long()
+    #     query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
+    #     query_xyz = torch.stack(query_xyz)
+    #     query_xyz = query_xyz.permute(1, 2, 0)
 
-        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
-        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
-        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
-        # query_xyz = query_xyz.transpose(1, 2)
-        query_pos = self.dec_pos_embedding(query_xyz)
-        query_embed = self.query_prj(query_pos)
-        return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
+    #     # Gater op above can be replaced by the three lines below from the pointnet2 codebase
+    #     # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
+    #     # query_xyz = gather_operation(xyz_flipped, query_inds.int())
+    #     # query_xyz = query_xyz.transpose(1, 2)
+    #     query_pos = self.dec_pos_embedding(query_xyz)
+    #     query_embed = self.query_prj(query_pos)
+    #     return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
 
 
     def forward(self, xyz, encoder_only=False):

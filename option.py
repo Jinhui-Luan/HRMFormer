@@ -5,8 +5,10 @@ class BaseOptionParser():
         self.parser = argparse.ArgumentParser()
 
         # data
-        self.parser.add_argument('--basic_path', type=str, default='/home/ljh20/file/data/surreal/', help='the path of surreal dataset')
+        self.parser.add_argument('-basic_path', type=str, default='/home/ljh20/file/data/surreal/', help='the path of surreal dataset')
+        self.parser.add_argument('-data_path', type=str, default='/file/ljh20/project/MEMBERT/data/', help='the path of data and smpl model')
         self.parser.add_argument('-m', type=int, default=67, help='the number of markers')
+        self.parser.add_argument('-f', type=int, default=10, help='the number of frames in each sequence')
 
         # network
         self.parser.add_argument('-d_i', type=int, default=3, help='the dimision of input')
@@ -20,13 +22,13 @@ class BaseOptionParser():
         self.parser.add_argument('-n_q', type=int, default=24, help='the number of object queries')
         self.parser.add_argument('-activation', type=str, choices=['relu', 'gelu', 'leakyrelu'], default='gelu')
         self.parser.add_argument('-norm_name', type=str, choices=['bn', 'bn1d', 'id', 'ln'], default='ln')
-        self.parser.add_argument('-pct_emb', action='store_true', help='pct embedding or mlp embedding')
-        self.parser.add_argument('-pre_norm', action='store_true', help='pre norm or post norm')
+        self.parser.add_argument('-pct_emb', type=bool, default=True, help='pct embedding or mlp embedding')
+        self.parser.add_argument('-pre_norm', type=bool, default=True, help='pre norm or post norm')
         self.parser.add_argument('-mode', type=str, choices=['train', 'test'], default='train')
 
         # train and val
         self.parser.add_argument('-seed', type=int, default=100, help='the seed for random')
-        self.parser.add_argument('-bs', '--batch_size', type=int, default=64, help='batch size of training')
+        self.parser.add_argument('-bs', type=int, default=64, help='batch size of training')
         self.parser.add_argument('-no_tb', action='store_true', help='do not use tensorboard')
         self.parser.add_argument('-output_path', type=str, default='./experiments/', help='path to save model and log')
         self.parser.add_argument('-exp_name', type=str, default='1_d1024', help='the experiment name to create path')

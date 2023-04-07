@@ -33,12 +33,12 @@ def gen_data():
 
     data = np.load('./anim1.npz')
     theta = data['poses'][:, :24, :]
-    beta = np.array([-2.2443552, 0.6893196, 2.108175, -0.57570285, -0.55536103, -1.5905423, -1.0977619, \
-        -0.27627876, 0.59387493, -0.81694436])
+    # beta = np.array([-2.2443552, 0.6893196, 2.108175, -0.57570285, -0.55536103, -1.5905423, -1.0977619, \
+    #     -0.27627876, 0.59387493, -0.81694436])
 
     f = theta.shape[0]
 
-    model_path = args.basic_path + 'basicmodel_f_lbs_10_207_0_v1.0.0.pkl'   # the path of SMPL model 
+    model_path = args.basic_path + 'basicmodel_m_lbs_10_207_0_v1.0.0.pkl'   # the path of SMPL model 
     model = SMPLModel(model_path)
     face = model.faces  
     
@@ -47,6 +47,7 @@ def gen_data():
 
     for fIdx in range(f):
         model.theta[:] = theta[fIdx, :, :].reshape(24, 3)
+        # model.beta[:] = beta
         model.update()
         vertex = rotate_mesh(model.verts, 90)
         vertex = model.verts
@@ -57,8 +58,9 @@ def gen_data():
             marker[fIdx, mrk_id, :] = torch.Tensor(vertex[vid]) + torch.Tensor(cur_m2b_distance) * vn[vid]
     
     marker = marker.astype(np.float32)
-    # beta = model.beta[:]
-    beta = np.repeat(beta, f).reshape(f, -1)
+    beta = np.array([0, -3, 0, 0, 0, 0, 0, 0, 0, 0])
+    beta = np.tile(beta, f).reshape(f, -1)
+    # IPython.embed()
     
     dataset['marker'] = marker
     dataset['theta'] = theta
@@ -88,11 +90,10 @@ def test():
     dl_test = get_data_loader(args.basic_path, args.batch_size, 'vis', args.m, 1)
 
     # criterion = nn.MSELoss().to(device)
-    smpl_model_path = os.path.join(args.basic_path, 'model_f.pkl')   
+    smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
     smpl_model = SMPLModel_torch(smpl_model_path, device) 
     face = smpl_model.faces
     # print(face, face.shape)
-    # IPython.embed()
 
     model.eval()
     # loss = []
@@ -169,7 +170,7 @@ def test():
 
 
 if __name__ == '__main__':
-    # gen_data()
+    gen_data()
     test()
     
 

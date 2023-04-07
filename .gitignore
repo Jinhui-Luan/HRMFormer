@@ -1,12 +1,15 @@
 .git/
 experiments/
+data/
 visualization/
+test/
 test.py
 main_limu.py
 main_ddp.py
 model_limu.py
 tools.py
 generate_mesh.py
+model_best.chkpt
 __pycache__/
 
 *.py# Byte-compiled / optimized / DLL files

@@ -20,10 +20,13 @@ from option import BaseOptionParser
 
 
 class MyDataset(Dataset):
-    def __init__(self, marker, theta, beta):
+    def __init__(self, marker, theta, beta, joint, theta_max, theta_min):
         self.marker = marker
         self.theta = theta
         self.beta = beta
+        self.joint = joint
+        self.theta_max = theta_max
+        self.theta_min = theta_min
 
     def __len__(self):
         return len(self.marker)
@@ -32,7 +35,10 @@ class MyDataset(Dataset):
         return {
             'marker': self.marker[index],
             'theta': self.theta[index],
-            'beta': self.beta[index]
+            'beta': self.beta[index],
+            'joint': self.joint[index],
+            'theta_max': self.theta_max,
+            'theta_min': self.theta_min
         }
 
 
@@ -137,11 +143,14 @@ class CosineScheduledOptim():
 
 
 def init_random_seed(seed):
+    os.environ['PYTHONHASHSEED'] = str(seed)
     torch.manual_seed(seed)
-    torch.backends.cudnn.benchmark = False
-    # torch.set_deterministic(True)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 
 def weight_init(m):
@@ -155,21 +164,34 @@ def attach_placeholder(X):
     return torch.cat((placeholder, X), dim=1)
 
 
-def get_data_loader(basic_path, batch_size, mode, m, interval):
-    data = np.load(os.path.join(basic_path, 'dataset-amass', mode + '_' + str(m) + '.npy'), allow_pickle=True).item()
-    print('Successfully load data from ' + mode + '_' + str(m) + '.npy!')
+def get_data_loader(data_path, exp_path, batch_size, mode, m, f, stride):
+    data = torch.load(os.path.join(data_path, mode + '_' + str(m) + '.pt'))
+    print('Successfully load data from ' + mode + '_' + str(m) + '.pt!')
+    
+    marker = torch.Tensor(data['marker']).reshape(-1, f, m, 3).to(torch.float32)              # (n_seq, f, m, 3)
+    theta = torch.Tensor(data['theta']).reshape(-1, f, 24, 3).to(torch.float32)               # (n_seq, f, j, 3)
+    beta = torch.Tensor(data['beta']).reshape(-1, f, 10).to(torch.float32)                    # (n_seq, f, 10)
+    # vertex = torch.Tensor(data['vertex']).reshape(-1, f, 6890, 3).to(torch.float32)           # (n_seq, f, v, 3)
+    joint = torch.Tensor(data['joint']).reshape(-1, f, 24, 3).to(torch.float32)               # (n_seq, f, j, 3)
+    theta_max = torch.Tensor(data['theta_max']).to(torch.float32)                                       # (j, 3)
+    theta_min = torch.Tensor(data['theta_min']).to(torch.float32)                                       # (j, 3)
 
-    marker = torch.Tensor(data['marker'])[::interval].to(torch.float32)       # (f, m, 3)
-    theta = torch.Tensor(data['theta'])[::interval].to(torch.float32)         # (f, j, 3)
-    beta = torch.Tensor(data['beta'])[::interval].to(torch.float32)           # (f, 10)
+    # for i in range(marker.shape[0]):
+    #     marker[i, :, :, :] = marker[i, :, torch.randperm(marker.shape[2]), :]
 
-    for i in range(marker.shape[0]):
-        marker[i, :, :] = marker[i, torch.randperm(marker.shape[1]), :]
+    l = marker.shape[0]
+    idx = torch.randint(l, [l, ])[:l//stride]
+    marker = marker[idx]
+    theta = theta[idx]
+    beta = beta[idx]
+    # vertex = vertex[idx]
+    joint = joint[idx]
 
-    print('Dataset shape: marker with size of {}, theta with size of {}.'.format(
-            marker.shape, theta.shape))
+    print('{} dataset shape: {}.'.format(mode, marker.shape).capitalize())
+    with open(os.path.join(exp_path, mode+'.log'), 'a') as f:
+        f.write('{} dataset shape: {}.\n'.format(mode, marker.shape).capitalize())
 
-    dataset = MyDataset(marker, theta, beta)
+    dataset = MyDataset(marker, theta, beta, joint, theta_max, theta_min)
     if mode == 'train':
         dataloader = DataLoader(dataset, batch_size, shuffle=True)
     else:
@@ -231,7 +253,7 @@ def cal_data_loss(x1, x2, rate, criterion):
 
 def train(model, dataloader_train, dataloader_val, scheduler, device, args):
     criterion = nn.MSELoss().to(device)
-    smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
+    smpl_model_path = os.path.join(args.data_path, 'model_m.pkl')   
     smpl_model = SMPLModel_torch(smpl_model_path, device) 
 
     # train from scratch or continue
@@ -448,11 +470,33 @@ def write_mesh(save_path, vertex, face, rgb=None):
     mesh.set_attribute("blue", mesh_ref.get_attribute("vertex_blue"))
     pymesh.meshio.save_mesh(save_path, mesh, "red", "green", "blue", ascii=True)
 
+
+def get_speed(x):
+    '''
+    x: the position of input marker or predicted joint or vertex with size of (bs, f, n, 3)
+    return: the average speed of x with size of (bs, f-1, n, 3)
+    '''
+
+    return x[:, 1:, :, :] - x[:, 0:-1, :, :]
+
+
+def get_jitter(x):
+    '''
+    x: the position of predicted vertex with size of (bs, f, n, 3)
+    return: the average jitter of x with size of (bs, f-3, n, 3)
+    ''' 
+    speed = get_speed(x)                # (bs, f-1, n, 3)
+    acc = get_speed(speed)              # (bs, f-2, n, 3)
+    jitter = get_speed(acc)             # (bs, f-3, n, 3)
+
+    return jitter
+
+
 def test(model, dataloader_test, device, args):
     # criterion = nn.MSELoss().to(device)
-    smpl_model_path = os.path.join(args.basic_path, 'model_m.pkl')   
+    smpl_model_path = os.path.join(args.data_path, 'model_m.pkl')   
     smpl_model = SMPLModel_torch(smpl_model_path, device) 
-    face = smpl_model.faces
+    
     # print(face, face.shape)
     # IPython.embed()
 
@@ -463,6 +507,7 @@ def test(model, dataloader_test, device, args):
     # loss_vertex = []
     MPJPE = []
     MPVPE = []
+    JITTER = []
     batch = 0
 
     desc = ' -       (Test) '
@@ -472,18 +517,21 @@ def test(model, dataloader_test, device, args):
             theta = data['theta'].to(device)
             beta = data['beta'].to(device)
 
-            theta_pred = model(marker)
+            bs, f, m, _ = marker.shape
+            theta_pred = model(marker.reshape(bs*f, m, 3))
 
-            smpl_model(beta, theta_pred)
+            smpl_model(beta.reshape(bs*f, 10), theta_pred.reshape(bs*f, 24, 3))
             joint_pred = smpl_model.joints
             vertex_pred = smpl_model.verts
 
-            smpl_model(beta, theta)
+            smpl_model(beta.reshape(bs*f, 10), theta.reshape(bs*f, 24, 3))
             joint = smpl_model.joints
             vertex = smpl_model.verts
 
             mpjpe = (joint_pred - joint).pow(2).sum(dim=-1).sqrt().mean()
             mpvpe = (vertex_pred - vertex).pow(2).sum(dim=-1).sqrt().mean()
+            jitter = get_jitter(vertex_pred.reshape(bs, f, 6890, 3)).pow(2).sum(dim=-1).sqrt().mean()
+
 
             # l_data = criterion(theta_pred, theta)
             # l_data = cal_data_loss(theta_pred, theta, args.rate, criterion)
@@ -497,9 +545,10 @@ def test(model, dataloader_test, device, args):
             # loss_vertex.append(l_vertex)
             MPJPE.append(mpjpe.clone().detach())
             MPVPE.append(mpvpe.clone().detach())
+            JITTER.append(jitter.clone().detach())
 
             if args.visualize:
-
+                face = smpl_model.faces
                 for i in range(marker.shape[0]):
                     # generate rgb color
                     rgb_marker = np.repeat(np.array([[255, 0, 0]]), marker.shape[1], axis=0)        # show marker in red 
@@ -528,7 +577,7 @@ def test(model, dataloader_test, device, args):
 
 
 
-    return torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean()
+    return torch.Tensor(MPJPE).mean(), torch.Tensor(MPVPE).mean(), torch.Tensor(JITTER).mean()
 
 
 def main():
@@ -568,8 +617,8 @@ def main():
             f.write(str(model))
             f.writelines('----------- end ----------' + '\n')
         
-        dl_train = get_data_loader(args.basic_path, args.batch_size, 'train', args.m, 80)
-        dl_val = get_data_loader(args.basic_path, args.batch_size, 'val', args.m, 1)
+        dl_train = get_data_loader(args.data_path, args.batch_size, 'train', args.m, 20)
+        dl_val = get_data_loader(args.data_path, args.batch_size, 'val', args.m, 1)
 
         # create optimizer and scheduler
         optimizer = AdamW(model.parameters(), lr=args.base_lr, betas=(0.9, 0.98), eps=1e-9)
@@ -588,9 +637,11 @@ def main():
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint['model'])
         print('Successfully load checkpoint of model!')
-        dl_test = get_data_loader(args.basic_path, args.batch_size, 'test', args.m, 10)
-        mpjpe, mpvpe = test(model, dl_test, device, args)
-        print(' - mpjpe: {:6.4f}, mpvpe: {:6.4f}'.format(mpjpe, mpvpe))
+        dl_test = get_data_loader(args.data_path, args.exp_path, args.bs, 'test', args.m, args.f, 10)
+        mpjpe, mpvpe, jitter = test(model, dl_test, device, args)
+        print(' - mpjpe: {:6.4f}, mpvpe: {:6.4f}, jitter: {:6.4f}'.format(mpjpe, mpvpe, jitter))
+        with open(os.path.join(args.log_save_path, 'test.log'), 'w') as f:
+            f.write(' - mpjpe: {:6.4f}, mpvpe: {:6.4f}, jitter: {:6.4f}'.format(mpjpe, mpvpe, jitter))
 
 
 if __name__ == '__main__':
