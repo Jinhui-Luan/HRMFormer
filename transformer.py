@@ -16,7 +16,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
-from pointnet2_ops.pointnet2_utils import furthest_point_sample
+# from pointnet2_ops.pointnet2_utils import furthest_point_sample
 from util import group
 from position_embedding import PositionEmbeddingCoordsSine
 from helpers import GenericMLP, ACTIVATION_DICT, NORM_DICT, WEIGHT_INIT_DICT, get_clones
@@ -560,20 +560,20 @@ class Transformer(nn.Module):
 
         'To facilitate the residual connections, the dimensions of all module outputs shall be the same.'
 
-    def get_query_embeddings(self, xyz):
-        query_inds = furthest_point_sample(xyz, self.n_q)
-        query_inds = query_inds.long()
-        query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
-        query_xyz = torch.stack(query_xyz)
-        query_xyz = query_xyz.permute(1, 2, 0)
+    # def get_query_embeddings(self, xyz):
+    #     query_inds = furthest_point_sample(xyz, self.n_q)
+    #     query_inds = query_inds.long()
+    #     query_xyz = [torch.gather(xyz[..., x], 1, query_inds) for x in range(3)]
+    #     query_xyz = torch.stack(query_xyz)
+    #     query_xyz = query_xyz.permute(1, 2, 0)
 
-        # Gater op above can be replaced by the three lines below from the pointnet2 codebase
-        # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
-        # query_xyz = gather_operation(xyz_flipped, query_inds.int())
-        # query_xyz = query_xyz.transpose(1, 2)
-        query_pos = self.dec_pos_embedding(query_xyz)
-        query_embed = self.query_prj(query_pos)
-        return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
+    #     # Gater op above can be replaced by the three lines below from the pointnet2 codebase
+    #     # xyz_flipped = encoder_xyz.transpose(1, 2).contiguous()
+    #     # query_xyz = gather_operation(xyz_flipped, query_inds.int())
+    #     # query_xyz = query_xyz.transpose(1, 2)
+    #     query_pos = self.dec_pos_embedding(query_xyz)
+    #     query_embed = self.query_prj(query_pos)
+    #     return query_embed.permute(2, 0, 1), query_pos.permute(2, 0, 1)
 
 
     def forward(self, xyz, encoder_only=False):

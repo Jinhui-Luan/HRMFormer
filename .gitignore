@@ -1,5 +1,6 @@
 .git/
 experiments/
+data/
 visualization/
 test/
 test.py
