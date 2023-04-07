@@ -441,5 +441,7 @@ def generate_data():
 
 
 if __name__ == '__main__':
-    generate_data()
+    # generate_data()
     # save2file()
+    data = np.load(os.path.join('/home/ljh20/file/data/surreal/dataset-amass/val_67.npy'), allow_pickle=True).item()
+    print(data['marker'].shape)
