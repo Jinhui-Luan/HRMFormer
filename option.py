@@ -6,7 +6,16 @@ class BaseOptionParser():
 
         # data
         self.parser.add_argument('-basic_path', type=str, default='/home/ljh20/file/data/surreal/', help='the path of surreal dataset')
+<<<<<<< HEAD
         self.parser.add_argument('-data_path', type=str, default='/file/ljh20/project/MEMBERT/data/', help='the path of data and smpl model')
+=======
+<<<<<<< HEAD
+        self.parser.add_argument('-data_path', type=str, default='/file/ljh20/project/MEMBERT/data/', help='the path of data and smpl model')
+        
+=======
+        self.parser.add_argument('-data_path', type=str, default='./data/', help='the path of generated data')
+>>>>>>> 1c157ad4afb01cf5889a00ab9dc99b166e248f9c
+>>>>>>> 803930cf5a35ee9591d457355883f3b586447394
         self.parser.add_argument('-m', type=int, default=67, help='the number of markers')
         self.parser.add_argument('-f', type=int, default=10, help='the number of frames in each sequence')
 
